@@ -39,7 +39,7 @@ Dear,
 * LeakCanary					[link](./Android/开源库/LeakCanary.md)
 
 ### APP性能优化
-* 性能优化总览篇，共5条			[link](./Android/APP性能优化/性能优化总览篇.md)
+* 总览篇							[link](./Android/APP性能优化/性能优化总览篇.md)
 * 性能优化1/5 -- 绘制优化			[link](./Android/APP性能优化/绘制优化.md)
 * 性能优化2/5 -- 内存优化
 * 性能优化3/5 -- 稳定性优化
