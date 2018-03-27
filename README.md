@@ -129,11 +129,10 @@ Dear,
 ### 网络
 * 数字证书包含的内容
 * HTTPS							[link](./Network/HTTPS.md)
-* 
 
 
 ### 多线程多进程
-* 死锁，常见场景和解决方法
+* 死锁						[link](./MultiThread/死锁.md)
 * AIDL
 * 进程间通信
 * 多线程间通信
