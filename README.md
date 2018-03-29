@@ -132,10 +132,10 @@ Dear,
 
 
 ### 多线程多进程
-* 死锁						[link](./MultiThread/死锁.md)
+* 死锁							[link](./MultiThread/死锁.md)
 * AIDL
 * 进程间通信
-* 多线程间通信
+* 多线程间通信					[link](./MultiThread/多线程间通信.md)
 * 多线程池的优化（OKHTTP里面有）
 
 
