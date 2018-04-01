@@ -19,9 +19,11 @@ Dear,
 * 图片相关
 * 内存
 * Android其他
+* Java
 * 设计模式
 * 数据结构
-* Java
+* 算法
+* 网络
 * 多线程多进程
 * 优秀博客
 
@@ -32,7 +34,7 @@ Dear,
 * Tinker						[link](./Android/开源库/tinker.md)
 * ActivityRouter				[link](./Android/开源库/ActivityRouter.md)
 * ButterKnife
-* EventBus
+* EventBus						[link](./Android/开源库/EventBus.md)
 * RxJava
 * Retrofit						[link](./Android/开源库/Retrofit.md)
 * OKHTTP						[link](./Android/开源库/OKHTTP.md)
@@ -70,7 +72,8 @@ Dear,
 * CoordinateLayout.Behavior
 
 ### 图片相关
-* LRUCache						[link](./Android/图片相关/LRUCache原理.md)
+* LRUCache						[link](./Android/图片相关/LruCache.md)
+* DiskLruCache					[link](./Android/图片相关/DiskLruCache.md)
 * 图片加载原理
 * 图片裁剪、压缩、旋转、滤镜
 * 如何做图片缓存

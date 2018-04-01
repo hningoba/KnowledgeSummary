@@ -41,8 +41,8 @@ fbcore
 ```
 
 ```
-
 SimpleDraweeView.setImageUri(Uri, Context) 流程：
+
 -> AbstractDraweeControllerBuilder. build(): AbstractDraweeController
 -> AbstractDraweeControllerBuilder. buildController(): AbstractDraweeController
 -> PipelineDraweeControllerBuilder. obtainController(): PipelineDraweeController
@@ -202,11 +202,11 @@ imagePipeline.clearCaches();
 ### 2. 硬盘缓存
 
 ### 3. MVC结构
-`
+```
 DraweeView			--	View
 DraweeController	-- Controller
 DraweeHierarchy		-- Model
-`
+```
 
 作用：
 DraweeView用来显示顶层视图（getTopLevelDrawable()）。
