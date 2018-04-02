@@ -140,6 +140,9 @@ Dear,
 * 进程间通信
 * 多线程间通信					[link](./MultiThread/多线程间通信.md)
 * 多线程池的优化（OKHTTP里面有）
+* ThreadLocal
+* ReentrantLock					[link](./MultiThread/ReentrantLock.md)
+* 类锁/对象锁/私有锁
 
 
 

@@ -7,8 +7,8 @@
 2. EventBus.post()过程
 3. 注解Subscribe.priority作用
 4. ConcurrentHashMap
-5. ThreadLocal
-6. CopyOnWriteArrayList
+5. CopyOnWriteArrayList
+6. ThreadLocal
 
 
 ### 1. register过程：
@@ -273,6 +273,7 @@ priority的作用就是决定多个subscriber中的回调方法的执行顺序�
 demo中，PostEventActivity注册StatusEvent指定了priority = 1，而EventBusActivity没指定StatusEvent的priority（默认0），所以post(StatusEvent)时，PostEventActivity先回调。
 
 这个实现原理，是register()过程中，就已经按照priority将subscriber按顺序放到subscriptionsByEventType中。所以取subscriber进行回调时，自然就按照priority顺序回调了。
+
 
 ### 4. ConcurrentHashMap
 
