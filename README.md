@@ -92,6 +92,9 @@ Dear,
 * Service两种启动方式
 * 详解注解处理器APT技术			[link](./Android/其他/详解APT.md)
 * gradle
+* launchMode					[link](./Android/其他/launchMode.md)
+* Activity调用方式(显式&隐式)		[link](./Android/其他/Activity调用方式.md)
+* IntentFilter匹配规则			[link](./Android/其他/IntentFilter匹配规则.md)
 
 
 ### Java
