@@ -105,6 +105,7 @@ Dear,
 * GC回收策略
 * GC算法
 * 类加载过程
+* transient关键字				[link](./Java/transient关键字.md)
 
 ### 设计模式
 * 代理，动态代理					[link](./DesignPattern/代理.md)
