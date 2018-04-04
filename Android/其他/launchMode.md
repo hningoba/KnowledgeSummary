@@ -24,3 +24,33 @@ singleTask: 栈内复用
 singleInstance: 单例模式
 
     和singleTask一样，但是加强了一点，就是该模式下的Activity会独占一个栈。
+    
+    
+**需要注意的一点：**
+
+必须用Activity Context启动Activity，如果用Application Context会crash。
+
+示例：
+
+```
+val intent = Intent(this@MainActivity, SecondActivity::class.java)
+applicationContext.startActivity(intent)
+
+```
+
+Crash Log:
+
+```
+Caused by: android.util.AndroidRuntimeException: Calling startActivity() from outside of an Activity  context requires the FLAG_ACTIVITY_NEW_TASK flag. Is this really what you want?
+```
+
+原因是，被启动Activity默认放在启动它的Activity所在的栈。Application Context没有Activity栈，所以会异常。
+
+解决方案是，使用flag:FLAG_ACTIVITY_NEW_TASK，让被启动Activity处在新建的栈。
+
+```
+val intent = Intent(this@MainActivity, SecondActivity::class.java)
+intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+applicationContext.startActivity(intent)
+```
+
