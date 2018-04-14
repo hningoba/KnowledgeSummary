@@ -30,6 +30,7 @@ Dear,
 
 
 ### 开源库
+
 * Fresco						[link](./Android/开源库/Fresco.md)
 * Tinker						[link](./Android/开源库/tinker.md)
 * ActivityRouter				[link](./Android/开源库/ActivityRouter.md)
@@ -39,8 +40,12 @@ Dear,
 * Retrofit						[link](./Android/开源库/Retrofit.md)
 * OKHTTP						[link](./Android/开源库/OKHTTP.md)
 * LeakCanary					[link](./Android/开源库/LeakCanary.md)
+* AtLast						[link](./Android/开源库/atlast.md)
+
+
 
 ### APP性能优化
+
 * 总览篇							[link](./Android/APP性能优化/总览篇.md)
 * 性能优化1/5 -- 绘制优化			[link](./Android/APP性能优化/绘制优化.md)
 	* Android系统显示原理
@@ -64,14 +69,19 @@ Dear,
 * OOM定位及解决方案
 * 安全、加固
 
+
 ### UI
+
 * SurfaceView VS TextureView	[link](./Android/UI/UI.md)
 * ConstraintLayout				[link](./Android/UI/UI.md)
 * 常用Drawable
 * Drawable VS Bitmap
 * CoordinateLayout.Behavior
 
+
+
 ### 图片相关
+
 * LRUCache						[link](./Android/图片相关/LruCache.md)
 * DiskLruCache					[link](./Android/图片相关/DiskLruCache.md)
 * 图片加载原理
@@ -83,11 +93,17 @@ Dear,
 * Bitmap vs Drawable			[link](./Android/图片相关/bitmap_vs_drawable.md)
 * 图片加载优化					[link](./Android/图片相关/图片加载优化.md)
 
+
+
 ### 内存
+
 * 内存泄漏场景
 * 如何定位及修复内存泄漏
 
+
+
 ### Android 其他
+
 * Art和Dalvik区别				[link](./Android/其他/Art和Dalvik区别.md)
 * Service两种启动方式
 * 详解注解处理器APT技术			[link](./Android/其他/详解APT.md)
@@ -95,11 +111,17 @@ Dear,
 * launchMode					[link](./Android/其他/launchMode.md)
 * Activity调用方式(显式&隐式)		[link](./Android/其他/Activity调用方式.md)
 * IntentFilter匹配规则			[link](./Android/其他/IntentFilter匹配规则.md)
+* 插件化
+* 热修复方案对比					[link](./Android/其他/热修复.md)
+* 埋点框架对比（网易乐得）
+* WebView优化（包括加载加速）
+* APK打包及安装过程				[link](./Android/其他/APK打包及安装过程.md)
+
 
 
 ### Java
+
 * JVM
-* ThreadLocal 原理
 * 谈谈classloader
 * 线程间 操作 List
 * GC回收策略
@@ -107,10 +129,26 @@ Dear,
 * 类加载过程
 * transient关键字				[link](./Java/transient关键字.md)
 
+
+
+### 多线程多进程
+
+* 死锁							[link](./MultiThread/死锁.md)
+* AIDL
+* Android多进程					[link](./MultiThread/Android多进程.md)
+* Android进程间通信--Binder		[link](./MultiThread/Android进程间通信--Binder.md)
+* 多线程间通信					[link](./MultiThread/多线程间通信.md)
+* 多线程池的优化（OKHTTP里面有）
+* ThreadLocal
+* ReentrantLock					[link](./MultiThread/ReentrantLock.md)
+* 类锁/对象锁/私有锁
+
+
 ### 设计模式
-* 代理，动态代理					[link](./DesignPattern/代理.md)
-* 责任链
-* 观察者
+* 代理，动态代理（Retrofit）					[link](./DesignPattern/代理.md)
+* 责任链（OKHTTP、Android事件分发）
+* 观察者（RxJava）
+* 装饰者（Java I/O Stream）
 * 生产者消费者
 * 单例
 
@@ -138,17 +176,6 @@ Dear,
 * HTTPS							[link](./Network/HTTPS.md)
 
 
-### 多线程多进程
-* 死锁							[link](./MultiThread/死锁.md)
-* AIDL
-* 进程间通信
-* 多线程间通信					[link](./MultiThread/多线程间通信.md)
-* 多线程池的优化（OKHTTP里面有）
-* ThreadLocal
-* ReentrantLock					[link](./MultiThread/ReentrantLock.md)
-* 类锁/对象锁/私有锁
-
-
 
 ### 优秀博客					[link](./Android/博客.md)
 
@@ -157,7 +184,6 @@ Dear,
 * 模块化实现（好处，原因）
 * 统计启动时长,标准
 * 动态布局
-* 热修复,插件化
 * 性能优化,怎么保证应用启动不卡顿
 * 怎么去除重复代码
 * SP是进程同步的吗?有什么方法做到同步

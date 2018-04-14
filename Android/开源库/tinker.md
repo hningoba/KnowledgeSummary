@@ -39,10 +39,6 @@ Tinker不支持修改AndroidManifest.xml，Tinker不支持新增四大组件(1.9
 不支持部分三星android-21机型，加载补丁时会主动抛出"TinkerRuntimeException:checkDexInstall failed"；
 对于资源替换，不支持修改remoteView。例如transition动画，notification icon以及桌面图标。
 
-### 衍生问题
-1. Dalvik VS ART
-2. oat mode
-3. 如何加载dex、so、资源等文件
 
 ###### 4. 如何打差分包，即补丁文件
 使用DexDiff算法，参考[link](https://www.zybuluo.com/dodola/note/554061)
@@ -78,6 +74,7 @@ API Level 19 : Android Kitkat, 4.4
 1. Tinker的补丁方案，Tinker采用的是下发差分包，然后在手机端合成全量的dex文件进行加载。
 
 ###### 加载补丁dex文件
+使用PathClassLoader加载补丁dex。将补丁dex和原dex合并成fix_class.dex，用这个新的dex替换原有pathDexList中的内容。
 
 ###### 加载补丁so文件
 
@@ -86,4 +83,29 @@ API Level 19 : Android Kitkat, 4.4
 
 InstantRun的资源更新方式最简便而且兼容性也最好，市面上大多数的热补丁框架都采用这套方案。Tinker的这套方案虽然也采用全量的替换，但是在下发patch中依然采用差量资源的方式获取差分包，下发到手机后再合成全量的资源文件，有效的控制了补丁文件的大小。
 
+
+### 类加载原理
+
+Android中类的加载也是通过ClassLoader来完成，具体来说就是PathClassLoader和DexClassLoader 这两个Android专用的类加载器，这两个类的区别如下：
+
+* PathClassLoader：只能加载已经安装到Android系统中的apk文件（/data/app目录），是Android默认使用的类加载器。
+* DexClassLoader：可以加载任意目录下的dex/jar/apk/zip文件，也就是我们一开始提到的补丁。
+这两个类都是继承自BaseDexClassLoader，我们可以看一下BaseDexClassLoader的构造函数。
+
+```
+public BaseDexClassLoader(String dexPath, File optimizedDirectory,
+            String libraryPath, ClassLoader parent) {
+	super(parent);
+	this.pathList = new DexPathList(this, dexPath, libraryPath,optimizedDirectory);
+}
+```
+
+这个构造函数只做了一件事，就是通过传递进来的相关参数，初始化了一个DexPathList对象。DexPathList的构造函数，就是将参数中传递进来的程序文件（就是补丁文件）封装成Element对象，并将这些对象添加到一个Element的数组集合**dexElements**中去。
+
+假设我们现在要去查找一个名为name的class，那么DexClassLoader将通过以下步骤实现：
+
+* 在DexClassLoader的findClass 方法中通过一个DexPathList对象findClass()方法来获取class
+* 在DexPathList的findClass 方法中，对之前构造好dexElements数组集合进行遍历，一旦找到类名与name相同的类时，就直接返回这个class，找不到则返回null。
+
+总的来说，通过DexClassLoader查找一个类，最终就是就是在一个数组中查找特定值的操作。
 

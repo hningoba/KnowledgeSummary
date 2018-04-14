@@ -20,7 +20,7 @@
 3）将Subscriber(即注册EventBus的类，示例代码中的EventBusActivity)和自己的SubscriberMethod存到subscriptionsByEventType。post时就从subscriptionsByEventType获取对应Event的所有subscriber进行回调。
 
 
-示例
+示例：
 
 ```
 页面一：
@@ -262,6 +262,13 @@ private boolean postSingleEventForEventType(Object event, PostingThreadState pos
     }
 
 ```
+
+四种ThreadMode:
+
+* POSTING：发送和接收在同一线程
+* MAIN：无法发送在哪个线程，接收都在UI线程；言外之意，发送要是在UI线程，接收和发送在同一线程
+* BACKGROUND：接收在异步线程；如果发送在异步线程，接收和发送在同一线程
+* ASYNC：接收在异步线程，且和发送不在同一线程，即使发送也在异步线程
 
 
 ### 3. 注解Subscribe.priority作用
