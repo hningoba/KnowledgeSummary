@@ -10,7 +10,6 @@ Dear,
 
 --------------------------------
 
-
 本篇总结的知识点分类：
 
 * 开源库
@@ -24,9 +23,8 @@ Dear,
 * 数据结构
 * 算法
 * 网络
-* 多线程多进程
-* 优秀博客
-
+* 多线程相关
+* 优秀网站
 
 
 ### 开源库
@@ -41,7 +39,6 @@ Dear,
 * OKHTTP						[link](./Android/开源库/OKHTTP.md)
 * LeakCanary					[link](./Android/开源库/LeakCanary.md)
 * AtLast						[link](./Android/开源库/atlast.md)
-
 
 
 ### APP性能优化
@@ -79,7 +76,6 @@ Dear,
 * CoordinateLayout.Behavior
 
 
-
 ### 图片相关
 
 * LRUCache						[link](./Android/图片相关/LruCache.md)
@@ -94,12 +90,10 @@ Dear,
 * 图片加载优化					[link](./Android/图片相关/图片加载优化.md)
 
 
-
 ### 内存
 
 * 内存泄漏场景
 * 如何定位及修复内存泄漏
-
 
 
 ### Android 其他
@@ -118,7 +112,6 @@ Dear,
 * APK打包及安装过程				[link](./Android/其他/APK打包及安装过程.md)
 
 
-
 ### Java
 
 * JVM
@@ -129,9 +122,7 @@ Dear,
 * 类加载过程
 * transient关键字				[link](./Java/transient关键字.md)
 
-
-
-### 多线程多进程
+### 多线程相关
 
 * 死锁							[link](./MultiThread/死锁.md)
 * AIDL
@@ -139,7 +130,7 @@ Dear,
 * Android进程间通信--Binder		[link](./MultiThread/Android进程间通信--Binder.md)
 * 多线程间通信					[link](./MultiThread/多线程间通信.md)
 * 多线程池的优化（OKHTTP里面有）
-* ThreadLocal
+* ThreadLocal					[link](./MultiThread/ThreadLocal.md)
 * ReentrantLock					[link](./MultiThread/ReentrantLock.md)
 * 类锁/对象锁/私有锁
 
@@ -176,8 +167,8 @@ Dear,
 * HTTPS							[link](./Network/HTTPS.md)
 
 
+### 优秀网站					[link](./Android/优秀网站.md)
 
-### 优秀博客					[link](./Android/博客.md)
 
 
 * 插桩（打点等会用到）
@@ -224,8 +215,6 @@ JVM
 统计启动时长,标准
 
 如何保持应用的稳定性
-
-ThreadLocal 原理
 
 谈谈classloader
 
@@ -667,8 +656,6 @@ hashmap如何put数据（从hashmap源码角度讲解）？
 fragment之间传递数据的方式？
 
 简述tcp四次挥手?
-
-threadlocal原理
 
 内存泄漏的可能原因？
 
