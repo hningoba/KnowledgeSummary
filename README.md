@@ -1,15 +1,3 @@
-Dear,
-
-这篇总结是送给你的非常好的资源库，也是你的子弹库。希望你能善加利用，做一个自信的人。
-
-另外，送你几句话：
-
-自律使人自由。
-
-路漫漫其修远兮，吾将上下而求索。
-
---------------------------------
-
 本篇总结的知识点分类：
 
 * 开源库
@@ -110,6 +98,7 @@ Dear,
 * 埋点框架对比（网易乐得）
 * WebView优化（包括加载加速）
 * APK打包及安装过程				[link](./Android/其他/APK打包及安装过程.md)
+* WebView优化
 
 
 ### Java
@@ -125,14 +114,15 @@ Dear,
 ### 多线程相关
 
 * 死锁							[link](./MultiThread/死锁.md)
-* AIDL
+* AIDL	
 * Android多进程					[link](./MultiThread/Android多进程.md)
 * Android进程间通信--Binder		[link](./MultiThread/Android进程间通信--Binder.md)
 * 多线程间通信					[link](./MultiThread/多线程间通信.md)
+* 线程安全						[link](./MultiThread/线程安全.md)
 * 多线程池的优化（OKHTTP里面有）
 * ThreadLocal					[link](./MultiThread/ThreadLocal.md)
 * ReentrantLock					[link](./MultiThread/ReentrantLock.md)
-* 类锁/对象锁/私有锁
+* 同步相关知识					[link](./MultiThread/同步相关知识.md)
 
 
 ### 设计模式
