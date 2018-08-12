@@ -104,12 +104,13 @@
 ### Java
 
 * JVM
-* 谈谈classloader
-* 线程间 操作 List
+* 谈谈ClassLoader
+* 线程间操作List
 * GC回收策略
 * GC算法
 * 类加载过程
 * transient关键字				[link](./Java/transient关键字.md)
+* 依赖注入和控制反转				[link](./Java/依赖注入和控制反转.md)
 
 ### 多线程相关
 
