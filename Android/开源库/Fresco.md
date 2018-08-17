@@ -1,8 +1,6 @@
 # Frsco
 
-[Github 地址](https://github.com/facebook/fresco)
-[中文官方文档](https://www.fresco-cn.org/)
-[优秀博客](http://blog.desmondyao.com/fresco-3-draweeview/#more)
+
 
 ##### 相关问题：
 1. Fresco 下载模块如何设计？<br>
@@ -43,7 +41,7 @@ fbcore
 ```
 SimpleDraweeView.setImageUri(Uri, Context) 流程：
 
--> AbstractDraweeControllerBuilder. build(): AbstractDraweeController
+-> AbstractDraweeControllerBuilder.build(): AbstractDraweeController
 -> AbstractDraweeControllerBuilder. buildController(): AbstractDraweeController
 -> PipelineDraweeControllerBuilder. obtainController(): PipelineDraweeController
 -> AbstractDraweeControllerBuilder. obtainDataSourceSupplier(): Supplier<DataSource<IMAGE>>
@@ -183,7 +181,10 @@ Ashmem存储区域：它是一个不在Java堆区的一片存储内存空间，�
 ##### 使用三级缓存：Bitmap缓存 + 未解码图片缓存 + 硬盘缓存
 其中前两个就是内存缓存，Bitmap缓存根据系统版本不同放在了不同内存区域中，而未解码图片的缓存只在堆内存中，Fresco分了两步做内存缓存，这样做有什么好处呢？好处是加快图片的加载速度。
 
-Fresco的加载图片的流程为：1）查找Bitmap缓存中是否存在，存在则直接返回Bitmap直接使用；2）不存在则查找未解码图片的缓存，如果存在则进行Decode成Bitmap然后直接使用并加入Bitmap缓存中；3）如果未解码图片缓存中查找不到，则进行硬盘缓存的检查，如有，则进行IO、转化、解码等一系列操作，最后成Bitmap供我们直接使用，并把未解码（Encode）的图片加入未解码图片缓存，把Bitmap加入Bitmap缓存中，如硬盘缓存中没有，则进行Network操作下载图片，然后加入到各个缓存中。
+Fresco的加载图片的流程为：
+1）查找Bitmap缓存中是否存在，存在则直接返回Bitmap直接使用；
+2）不存在则查找未解码图片的缓存，如果存在则进行Decode成Bitmap然后直接使用并加入Bitmap缓存中；
+3）如果未解码图片缓存中查找不到，则进行硬盘缓存的检查，如有，则进行IO、转化、解码等一系列操作，最后成Bitmap供我们直接使用，并把未解码（Encode）的图片加入未解码图片缓存，把Bitmap加入Bitmap缓存中，如硬盘缓存中没有，则进行Network操作下载图片，然后加入到各个缓存中。
 
 既然Fresco使用了三级缓存，而有两级是内存缓存，所以当我们的App在后台时或者在内存低的情况下在onLowMemory()方法中，我们应该手动清除应用的内存缓存，我们可以使用下面的方式：
 
@@ -217,7 +218,10 @@ DraweeHierarchy意为视图的层次结构，用来存储和描述图片的信�
 DraweeHolder是协调DraweeView、DraweeHierarchy、DraweeController这三个类交互工作的核心类。
 
 
-
+参考：
+* [Github 地址](https://github.com/facebook/fresco)
+* [中文官方文档](https://www.fresco-cn.org/)
+* [优秀博客](http://blog.desmondyao.com/fresco-3-draweeview/#more)
 
 
 

@@ -1,24 +1,21 @@
-# Tinker
 
-[Tinker Wiki](https://github.com/Tencent/tinker/wiki)
 
-[优秀博客](http://w4lle.com/2016/12/16/tinker/)
+### 方案对比
 
-### 技术选型
 当前比较流行的热补丁方案有微信Tinker、阿里AndFix、美团Robust、QZone超级补丁。每个平台都有自己的局限，大家在技术选型时可以根据业务需要做选择。
 
-|		| Tinker |	QZone |	AndFix | Robust |
-| ------|:-------|:------:| -----:|
+| 特性 | Tinker |	QZone |	AndFix | Robust |
+| ------|:-------|:------:| -----:| -----:|
 | 类替换 | yes | yes | no | no | 
 | So替换	| yes	| no	| no| 	no| 
 | 资源替换| 	yes| 	yes| 	no| 	no| 
-| 全平台支持| 	yes| 	yes| 	yes| 	yes| 
+| 全平台支持| 	yes| 	yes| 	yes| yes| 
 | 即时生效| 	no| 	no| 	yes| 	yes| 
 | 性能损耗| 	较小| 	较大| 	较小| 	较小| 
-| 补丁包大小| 	较小| 	较大| 	一般| 	一般| 
+| 补丁包大小| 	较小| 	较大| 	一般| 一般| 
 | 开发透明| 	yes| 	yes| 	no| 	no| 
 | 复杂度| 	较低| 	较低| 	复杂| 	复杂| 
-| gradle支持| 	yes| 	no| 	no| 	no| 
+| gradle支持| 	yes| 	no| 	no| no| 
 | Rom体积| 	较大| 	较小| 	较小| 	较小| 
 | 成功率| 	较高| 	较高| 	一般| 	最高| 
 
@@ -30,16 +27,17 @@
 3. Qzone方案可以做到发布产品功能，但是它主要问题是插桩带来Dalvik的性能问题，以及为了解决Art下内存地址问题而导致补丁包急速增大的。
 
 
-**Tinker的已知问题**
+### Tinker已知问题
 
 由于原理与系统限制，Tinker有以下已知问题：
 
-Tinker不支持修改AndroidManifest.xml，Tinker不支持新增四大组件(1.9.0支持新增非export的Activity)；
-由于Google Play的开发者条款限制，不建议在GP渠道动态更新代码；
-在Android N上，补丁对应用启动时间有轻微的影响；
+1. Tinker不支持修改AndroidManifest.xml，Tinker不支持新增四大组件(1.9.0支持新增非export的Activity)；
+2. 由于Google Play的开发者条款限制，不建议在GP渠道动态更新代码；
+3. 在Android N上，补丁对应用启动时间有轻微的影响；
 不支持部分三星android-21机型，加载补丁时会主动抛出"TinkerRuntimeException:checkDexInstall failed"；
 对于资源替换，不支持修改remoteView。例如transition动画，notification icon以及桌面图标。
 
+### 技术解析
 
 ###### 4. 如何打差分包，即补丁文件
 使用DexDiff算法，参考[link](https://www.zybuluo.com/dodola/note/554061)
@@ -109,4 +107,9 @@ public BaseDexClassLoader(String dexPath, File optimizedDirectory,
 * 在DexPathList的findClass 方法中，对之前构造好dexElements数组集合进行遍历，一旦找到类名与name相同的类时，就直接返回这个class，找不到则返回null。
 
 总的来说，通过DexClassLoader查找一个类，最终就是就是在一个数组中查找特定值的操作。
+
+
+参考文章：
+[Tinker](https://github.com/Tencent/tinker/wiki)
+[Android热补丁之Tinker原理解析](http://w4lle.com/2016/12/16/tinker/)
 
