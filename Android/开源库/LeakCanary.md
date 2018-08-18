@@ -5,7 +5,7 @@ LeakCanary内存泄漏检测机制，大概是以下几个步骤：
 
 1. 利用 application.registerActivityLifecycleCallbacks(lifecycleCallbacks) 来监听整个生命周期内的 Activity onDestoryed 事件;
 
-2. 当某个 Activity 被 destory 后，将它传给 RefWatcher 去做观测，确保其后续会被正常回收；
+2. 当某个 Activity 被 destory 后，将它传给 RefWatcher 去做观测，观察后续会被正常回收；
 
 3. RefWatcher 首先把 Activity 使用 KeyedWeakReference 引用起来，并使用一个 ReferenceQueue 来记录该 KeyedWeakReference 指向的对象是否已被回收；
 

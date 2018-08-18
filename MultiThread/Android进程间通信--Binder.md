@@ -2,7 +2,10 @@
 
 Binder工作机制:
 
-![](../img/Binder工作机制.png =614x278)
+从Android应用层来说，Binder是客户端和服务端进行通信的媒介。当bindService()的时候，服务端会返回一个包含了服务端业务调用的Binder对象，通过这个Binder对象，客户端就可以获取服务端的服务或者数据，这里的服务包括普通服务和AIDL服务。<br>
+Android开发中，Binder主要用在Service中，包括AIDL和Messenger。其中普通Service中的Binder不涉及进程间通信，较为简单，无法触及Binder的核心。而Messenger得底层其实是AIDL，所以AIDL的实现原理，即是Binder在Android应用层的原理。
+     
+![](../img/Binder工作机制.png)
 
 
 IBookManager.java

@@ -1,10 +1,10 @@
-# AtLast
+# atlas
 
 
 
-AtLas组件打包过程：
+atlas组件打包过程：
 
-![](../../img/atlas组件打包过程.png =600x500)
+![](https://github.com/hningoba/KnowledgeSummary/blob/master/img/atlas%E7%BB%84%E4%BB%B6%E6%89%93%E5%8C%85%E8%BF%87%E7%A8%8B.png?raw=true)
 
 上面的图中，其实左边这一部分是一个标准的APK的构建过程，包括处理，编译，到签名的过程。
 
@@ -22,3 +22,6 @@ AtLas组件打包过程：
 
 这就是我们组件化的整个过程。所以解压缩插件化后的文件，可以看到libs下面有很多so文件。
 
+参考：<br>
+[atlas](https://github.com/alibaba/atlas)<br>
+[Atlas：手淘Native容器化框架和思考](http://www.infoq.com/cn/articles/shoutao-atlas)
