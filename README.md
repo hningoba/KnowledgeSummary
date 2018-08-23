@@ -20,6 +20,7 @@
 * Fresco						[link](./Android/开源库/Fresco.md)
 * Tinker						[link](./Android/开源库/tinker.md)
 * ActivityRouter				[link](./Android/开源库/ActivityRouter.md)
+* ARouter					[link](./Android/开源库/ARouter.md)
 * ButterKnife
 * EventBus						[link](./Android/开源库/EventBus.md)
 * RxJava
@@ -93,8 +94,9 @@
 * Activity调用方式(显式&隐式)		[link](./Android/其他/Activity调用方式.md)
 * IntentFilter匹配规则			[link](./Android/其他/IntentFilter匹配规则.md)
 * 插件化
+* 组件化
 * 热修复方案对比					[link](./Android/其他/热修复.md)
-* 埋点框架对比（网易乐得）
+* 埋点框架
 * WebView优化（包括加载加速）
 * APK打包及安装过程				[link](./Android/其他/APK打包及安装过程.md)
 * WebView优化
@@ -103,12 +105,13 @@
 ### Java
 
 * JVM
-* 谈谈classloader
-* 线程间 操作 List
+* 谈谈ClassLoader
+* 线程间操作List
 * GC回收策略
 * GC算法
 * 类加载过程
 * transient关键字				[link](./Java/transient关键字.md)
+* 依赖注入和控制反转				[link](./Java/依赖注入和控制反转.md)
 
 ### 多线程相关
 

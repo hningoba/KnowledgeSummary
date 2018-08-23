@@ -1,6 +1,6 @@
 # ActivityRouter
 
-##### 问题 1. Activity的@Router注解有什么作用？
+##### 1. @Router的作用
 	
 编译时，注解处理器会扫描所有Java源文件。最终会执行自定义注解处理器`RouterProcessor`中的几个关键方法
 	 
@@ -25,7 +25,7 @@ public class RouterProcessor extends AbstractProcessor {
 PS: 编译时注解处理器不熟悉的，可以参考[Java注解处理器](https://www.race604.com/annotation-processing/)
 
 
-##### 问题 2. 注解处理器工作流
+##### 2. APT工作流程
 编译时，系统会调用RouterProcessor#process()，在此方法中做下面相关处理：
 
 1. 获取所有被Router注解的Element，Element是程序的元素，可以是包、类、方法
