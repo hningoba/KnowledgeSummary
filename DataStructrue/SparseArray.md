@@ -1,11 +1,11 @@
 ### SparseArray
 
-###### 何时使用？
+##### 何时使用？
 当HashMap的Key为primitive type时，就可以用SparseArray替代HashMap。
 
-举例：HashMap<Integer, Object> => SparseArray<Object>
+举例：``HashMap<Integer, Object> => SparseArray<Object>``
 
-###### 原理解析
+##### 原理解析
 1.SparseArray内部存储了两个数组，一个Key数组；一个Value数组；
 
 ```
@@ -55,12 +55,12 @@ class ContainerHelpers {
 ```
 
 
-###### SparseArray VS HashMap：
+##### SparseArray VS HashMap：
 优势：避免自动装箱；
 劣势：数据量大时，不适宜使用，因为它使用二分查找法，比HashMap效率低，且数组的add,delete效率也低；
 
 
-###### Source Code:
+##### Source Code:
 
 ```
 package android.util;
