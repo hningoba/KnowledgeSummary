@@ -93,8 +93,8 @@
 * launchMode					[link](./Android/其他/launchMode.md)
 * Activity调用方式(显式&隐式)		[link](./Android/其他/Activity调用方式.md)
 * IntentFilter匹配规则			[link](./Android/其他/IntentFilter匹配规则.md)
-* 插件化
-* 组件化
+* 插件化							[link](./Android/其他/插件化.md)
+* 组件化							[link](./Android/其他/组件化.md)
 * 热修复方案对比					[link](./Android/其他/热修复.md)
 * 埋点框架
 * WebView优化（包括加载加速）
