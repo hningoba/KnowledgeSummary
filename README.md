@@ -86,7 +86,7 @@
 
 ### Android 其他
 
-* Art和Dalvik区别				[link](./Android/其他/Art和Dalvik区别.md)
+* [Art和Dalvik区别]				(./Android/其他/Art和Dalvik区别.md)
 * Service两种启动方式
 * 详解注解处理器APT技术			[link](./Android/其他/详解APT.md)
 * gradle
