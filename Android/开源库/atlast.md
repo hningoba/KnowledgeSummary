@@ -23,5 +23,6 @@ atlas组件打包过程：
 这就是我们组件化的整个过程。所以解压缩插件化后的文件，可以看到libs下面有很多so文件。
 
 参考：<br>
-[atlas](https://github.com/alibaba/atlas)<br>
+[atlas-github](https://github.com/alibaba/atlas)<br>
+[atlas官网](http://atlas.taobao.org/)<br>
 [Atlas：手淘Native容器化框架和思考](http://www.infoq.com/cn/articles/shoutao-atlas)
