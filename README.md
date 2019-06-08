@@ -44,7 +44,7 @@
 	* 工具篇	
 * 性能优化2/5 -- 内存优化			[link](./Android/APP性能优化/内存优化.md)
 	* 内存占用分析工具
-	* 内存泄漏分析工具	
+	* 内存泄漏分析					[link](./Android/APP性能优化/内存泄漏分析及解决.md)
 * 性能优化3/5 -- 稳定性优化		[link](./Android/APP性能优化/稳定性优化.md)
 	* Java层Crash监控
 	* Native层Crash监控
@@ -95,6 +95,7 @@
 * IntentFilter匹配规则			[link](./Android/其他/IntentFilter匹配规则.md)
 * 插件化							[link](./Android/其他/插件化.md)
 * 组件化							[link](./Android/其他/组件化.md)
+* 多进程架构						[link](./Android/其他/多进程架构.md)
 * 热修复方案对比					[link](./Android/其他/热修复.md)
 * 埋点框架
 * WebView优化（包括加载加速）

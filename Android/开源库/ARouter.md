@@ -393,3 +393,7 @@ class LogisticsCenter {
 
 实际项目中我们可以写gradle插件做很多辅助工作，比如ARouter用来生产代码初始化路由表，也可以代码检查、代码修改、以及上传maven等各种task。
 
+
+### 推荐文章
+
+[ARouter](https://github.com/alibaba/ARouter)

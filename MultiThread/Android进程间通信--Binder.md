@@ -1,18 +1,21 @@
 # Android进程间通信--Binder
 
-Binder工作机制:<br>
-从Android应用层来说，Binder是客户端和服务端进行通信的媒介。<br>
+**Binder工作机制:**
+
+从Android应用层来说，Binder是客户端和服务端进行通信的媒介。
+
 当bindService()的时候，服务端会返回一个包含了服务端业务调用的Binder对象，通过这个Binder对象，客户端就可以获取服务端的服务或者数据，这里的服务包括普通服务和AIDL服务。<br>
 Android开发中，Binder主要用在Service中，包括AIDL和Messenger。其中普通Service中的Binder不涉及进程间通信，较为简单，无法触及Binder的核心。而Messenger得底层其实是AIDL，所以AIDL的实现原理，即是Binder在Android应用层的原理。
      
 ![](../img/Binder工作机制.png)
 
-注意：<br>
-Client和Server处在不同进程，才走AIDL的transact()过程。该逻辑由AIDL#Stub的内部代理类Proxy来完成。<br>
-transact()方法运行在服务端的Binder线程池中，当客户端发起跨进程请求时，远程请求会通过系统底层封装后交由此方法处理。<br>
-服务端通过"code"(代表方法或服务)可以确定客户端请求什么。接着从"data"取出目标方法的参数，然后执行目标方法。<br>
-目标方法执行完毕后，就向目标方法写入返回值。过程即是这样。<br>
-需要注意的是，该方法返回false，客户端会请求失败。所以可以利用此特性做权限验证，避免任何进程都可以远程调用我们的服务。
+**注意：**
+
+1. Client和Server处在不同进程才走AIDL的transact()过程。该逻辑由AIDL#Stub的内部代理类Proxy来完成。
+2. transact()方法运行在服务端的Binder线程池中，当客户端发起跨进程请求时，远程请求会通过系统底层封装后交由此方法处理。
+3. 服务端通过"code"(代表方法或服务)可以确定客户端请求什么。接着从"data"取出目标方法的参数，然后执行目标方法。
+4. 目标方法执行完毕后，就向目标方法写入返回值。过程即是这样。
+5. 需要注意的是，该方法返回false，客户端会请求失败。所以可以利用此特性做权限验证，避免任何进程都可以远程调用我们的服务。
 
 Client: 
 

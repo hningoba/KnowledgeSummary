@@ -219,8 +219,11 @@ DraweeHolder是协调DraweeView、DraweeHierarchy、DraweeController这三个类
 
 
 参考：
+
 * [Github 地址](https://github.com/facebook/fresco)
+
 * [中文官方文档](https://www.fresco-cn.org/)
+
 * [优秀博客](http://blog.desmondyao.com/fresco-3-draweeview/#more)
 
 
