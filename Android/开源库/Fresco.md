@@ -1,78 +1,114 @@
-# Frsco
-
-
-
-##### 相关问题：
+### 相关问题：
 1. Fresco 下载模块如何设计？<br>
 默认使用HTTPURLConnection，也支持使用OkHttp。下载类是NetworkFetcher。
-
-2. Fresco 图片缓存模块如何设计？<br>
+2. 图片缓存模块如何设计？<br>
 三级缓存：Bitmap缓存(5.0以前放Ashmen) + 未解码图片缓存 + 硬盘缓存
-
-3. 硬盘缓存如何设计？<br>
-
-4. SimpleDraweeView layout_width/height 为何不支持 wrap_content?<br>
-
-5. DraweeView多层结构？<br>
+3. 画出读缓存、网络请求的方法时序图
+4. 硬盘缓存如何设计？<br>
+5. SimpleDraweeView layout_width/height 为何不支持 wrap_content?<br>
+6. DraweeView多层结构？<br>
 
 
 
-##### 模块结构
-```
-demo
-	compile project(':drawee-backends:drawee-pipeline')
+### 整体架构图：
 
-drawee-pipeline (包含在drawee-backends目录中，同级还有drawee-volly)
-	compile project(':drawee')
-    compile project(':fbcore')
-    compile project(':imagepipeline')
-    
-drawee
-	compile project(':fbcore')
-	
-imagepipeline
-	compile project(':fbcore')
-	
-fbcore
-	最底层module，提供file, log, datasource, memory等基础功能
-    
-```
+
+
+![Fresco主要模块结构图](https://github.com/hningoba/KnowledgeSummary/blob/master/img/fresco_sub_module.png)
+
+
+
+### 主要环节代码流程
 
 ```
-SimpleDraweeView.setImageUri(Uri, Context) 流程：
+-> SimpleDraweeView.setImageUri()
+-> AbstractDraweeControllerBuilder.build()
+-> AbstractDraweeControllerBuilder.buildController()
+-> PipelineDraweeControllerBuilder.obtainController()
+-> AbstractDraweeControllerBuilder.obtainDataSourceSupplier()
+-> AbstractDraweeControllerBuilder.getDataSourceSupplierForRequest()
+-> PipelineDraweeControllerBuilder.getDataSourceForRequest()
+-> ImagePipeline.fetchDecodedImage()
+-> ImagePipeline.submitFetchRequest()
+-> CloseableProducerToDataSourceAdapter.create()
+-> AbstractProducerToDataSourceAdapter.construtor()
+-> BitmapMemoryCacheGetProducer.produceResults() //后面是拿数据过程，有内存/磁盘/网络多种Producer
 
--> AbstractDraweeControllerBuilder.build(): AbstractDraweeController
--> AbstractDraweeControllerBuilder. buildController(): AbstractDraweeController
--> PipelineDraweeControllerBuilder. obtainController(): PipelineDraweeController
--> AbstractDraweeControllerBuilder. obtainDataSourceSupplier(): Supplier<DataSource<IMAGE>>
--> AbstractDraweeControllerBuilder. getDataSourceSupplierForRequest(): Supplier<DataSource<IMAGE>>
--> PipelineDraweeControllerBuilder. getDataSourceForRequest(): DataSource<CloseableReference<CloseableImage>>
--> ImagePipeline. fetchDecodedImage(): DataSource<CloseableReference<CloseableImage>>
--> ImagePipeline. submitFetchRequest(): DataSource<CloseableReference<CloseableImage>>
--> CloseableProducerToDataSourceAdapter. create(): DataSource<CloseableReference<T>>
--> AbstractProducerToDataSourceAdapter. construtor()
--> Producer. produceResults()
+case1: 首次冷启动APP加载图片，没有BitmapCache，但有磁盘缓存
+-> ThreadHandoffProducer.produceResults()
+-> StatefulRunnable.onSuccess()
+-> BitmapMemoryCacheKeyMultiplexProducer.produceResults()
+-> MultiplexProducer.Multiplexer.startInputProducerIfHasAttachedConsumers()
+-> BitmapMemoryCacheProducer.produceResults() //内存缓存
+-> DecodeProducer.produceResults()
+-> ResizeAndRotateProducer.produceResults()
+-> AddImageTransformMetaDataProducer.produceResults()
+-> EncodedCacheKeyMultiplexProducer.produceResults()
+-> MultiplexProducer.Multiplexer.startInputProducerIfHasAttachedConsumers()
+-> EncodedMemoryCacheProducer.produceResults() //未解码缓存
+-> DiskCacheReadProducer.produceResults() // 磁盘缓存
+-> SmallCacheIfRequestedDiskCachePolicy.createAndStartCacheReadTask()
+-> BufferedDiskCache.get()
+-> BufferedDiskCache.getAsync(). Callable.call()
+	Q: disk cache staging area???
+-> BufferedDiskCache.readFromDiskCache() // 读取磁盘文件
+-> DiskStorageCache.getResource()
+-> DefaultDiskStorage.getResource()
+-> DiskCacheReadProducer.onFinishDiskReads()
+-> DiskCacheReadProducer.Continuation.then()
+	ps: EncodedImage cachedReference = task.getResult() 不为空说明拿到磁盘缓存结果，
+	否则，走网络请求，即执行MediaVariationsFallbackProducer.produceResults()
+	下面都是回调过程。
+-> EncodedMemoryCacheProducer.EncodedMemoryCacheConsumer.onNewResultImpl()
+-> InstrumentedMemoryCache.cache() // 将拿到的磁盘缓存结果存储到内存缓存中
+-> CountingMemoryCache.cache()
+-> MultiplexProducer.Multiplexer.ForwardingConsumer.onNewResultImpl()
+-> AddImageTransformMetaDataProducer.onNewResultImpl()
+
+case2: 没有BitmapCache、磁盘缓存，走网络请求
+前面流程和拿磁盘缓存一样。
+-> DiskCacheReadProducer.onFinishDiskReads()
+-> DiskCacheReadProducer.Continuation.then()
+-> MediaVariationsFallbackProducer.produceResults()
+-> MediaVariationsFallbackProducer.startInputProducerWithExistingConsumer()
+-> DiskCacheWriteProducer.produceResults()
+-> DiskCacheWriteProducer.maybeStartInputProducer()
+-> NetworkFetchProducer.produceResults()
+-> HttpUrlConnectionNetworkFetcher.fetch() // 配置了OkHttp，此处走OkHttpNetworkFetcher.fetch()
+-> HttpUrlConnectionNetworkFetcher.fetchSync() // 网络请求图片
+-> HttpUrlConnectionNetworkFetcher.downloadFrom()
+-> NetworkFetchProducer.onResponse() // 请求到网络图片，回调
+```
+
 
 
 SimpleDraweeView attach到window时，执行如下流程：
+
+```
 -> DraweeView. onAttachedwindow()
 -> DraweeHolder. onAttach()
 -> DraweeHolder. attachController()
 -> AbstrackDraweeController. onAttach()
 -> AbstrackDraweeController. submitRequest()
 -> AbstractDataSource. subscribe()
-
 ```
 
 
-##### 主要类
+
+### 主要类
+
+##### ImagePipline
+
+负责从网络、本地文件、本地资源加载图片，并将其解码到内存中供系统使用。
 
 ```
-ImagePipline：负责从网络、本地文件、本地资源加载图片，并将其解码到内存中供系统使用。
 
 ImageRequest, 
 
-Supplier<DataSource<T>>
+Supplier
+DataSource
+CloseableReference
+CloseableImage
 
 DraweeController:
 
@@ -93,23 +129,130 @@ AbstractDataSource
 	->	AbstractProducerToDataSourceAdapter
 		->	CloseableProducerToDataSourceAdapter
 
+```
 
-**Producer:**
-封装了Fetcher。
+##### Producer
+
+```
 使用生产者消费者模式(Producer-Consumer)，获取不同来源的图片资源(cache, file, url)。
 
 继承关系：
 -> Producer (I)
-	-> LocalFetchProducer
-		-> LocalAssetFetchProducer
-		-> LocalFileFetchProducer
-		-> LocalResourceFetchProducer
+	-> BitmapMemoryCacheProducer
+	-> EncodedMemoryCacheProducer
 	-> NetworkFetchProducer
-	-> LocalVideoThumbnailProducer
-	
-	
-		
-**Fetcher:**
+
+BitmapMemoryCacheProducer：
+在已解码的内存缓存中获取数据；若未找到，则在nextProducer中获取数据，并在获取到数据的同时将其缓存
+
+BitmapMemoryCacheKeyMultiplexProducer：
+是MultiplexProducer的子类，nextProducer为BitmapMemoryCacheProducer，将多个拥有相同已解码内存缓存键的ImageRequest进行“合并”，若缓存命中，它们都会获取到该数据
+
+PostprocessedBitmapMemoryCacheProducer：
+在已解码的内存缓存中寻找PostProcessor处理过的图片。它的nextProducer都是PostProcessorProducer，因为如果没有获取到被PostProcess的缓存，就需要对获取的图片进行PostProcess。；若未找到，则在nextProducer中获取数据
+
+EncodedMemoryCacheProducer：
+在未解码的内存缓存中寻找数据，如果找到则返回，使用结束后释放资源；若未找到，则在nextProducer中获取数据，并在获取到数据的同时将其缓存
+
+DiskCacheProducer：
+在文件内存缓存中获取数据；若未找到，则在nextProducer中获取数据，并在获取到数据的同时将其缓存到disk cache中
+
+MultiplexProducer：
+将多个拥有相同CacheKey的ImageRequest进行“合并”，让他们从都从nextProducer中获取数据
+
+ThreadHandoffProducer：
+将nextProducer的produceResult方法放在后台线程中执行（线程池容量为1）
+
+SwallowResultProducer:
+将nextProducer的获取的数据“吞”掉，回在Consumer的onNewResult中传入null值
+
+ResizeAndRotateProducer:
+将nextProducer产生的EncodedImage根据EXIF的旋转、缩放属性进行变换（如果对象不是JPEG格式图像，则不会发生变换）
+
+PostProcessorProducer:
+将nextProducer产生的EncodedImage根据PostProcessor进行修改，关于PostProcessor详见修改图片；
+
+DecodeProducer：
+将nextProducer产生的EncodedImage解码。解码在后台线程中执行，可以在ImagePipelineConfig中通过setExecutorSupplier来设置线程池数量，默认为最大可用的处理器数；
+
+WebpTranscodeProducer：
+若nextProducer产生的EncodedImage为WebP格式，则将其解码成DecodeProducer能够处理的EncodedImage。解码在后代进程中进行。
+
+```
+
+从主要环节代码流程就可以看到，Producer是一种从上到下的层次结构，类似于责任链模式。图片请求过程从上层Producer逐层向下，每层Producer无法处理结果就把请求丢到下层Producer，即其内部的mInputProducer。到达某一层Producer拿到结果后，就通过内部成员Consumer将结果回调给外部。Consumer回调的顺序和Producer相反，从下到上。
+
+
+
+Producer流的入口在ImagePipeline.fetchDecodedImage()
+
+```
+ImagePipeline.class
+
+public DataSource<CloseableReference<CloseableImage>> fetchDecodedImage(
+      ImageRequest imageRequest,
+      Object callerContext,
+      ImageRequest.RequestLevel lowestPermittedRequestLevelOnSubmit) {
+    try {
+    	// 初次使用Producer
+      Producer<CloseableReference<CloseableImage>> producerSequence =
+          mProducerSequenceFactory.getDecodedImageProducerSequence(imageRequest);
+          
+      return submitFetchRequest(
+          producerSequence,
+          imageRequest,
+          lowestPermittedRequestLevelOnSubmit,
+          callerContext);
+    } catch (Exception exception) {
+      return DataSources.immediateFailedDataSource(exception);
+    }
+  }
+```
+
+Producer的创建都在ProducerSequenceFactory。每创建一个Producer时，都会优先创建其下层Producer作为构造参数，从而形成从上到下的链式结构。
+
+ProducerSequenceFactory.class
+
+```
+/**
+   * swallow result if prefetch -> bitmap cache get ->
+   * background thread hand-off -> multiplex -> bitmap cache -> decode -> multiplex ->
+   * encoded cache -> disk cache -> (webp transcode) -> network fetch.
+   */
+  private synchronized Producer<CloseableReference<CloseableImage>> getNetworkFetchSequence() {
+    if (mNetworkFetchSequence == null) {
+      mNetworkFetchSequence =
+          newBitmapCacheGetToDecodeSequence(getCommonNetworkFetchToEncodedMemorySequence());
+    }
+    return mNetworkFetchSequence;
+  }
+  
+   /**
+   * multiplex -> encoded cache -> disk cache -> (webp transcode) -> network fetch.
+   */
+  private synchronized Producer<EncodedImage> getCommonNetworkFetchToEncodedMemorySequence() {
+    if (mCommonNetworkFetchToEncodedMemorySequence == null) {
+      Producer<EncodedImage> inputProducer =
+          newEncodedCacheMultiplexToTranscodeSequence(
+              mProducerFactory.newNetworkFetchProducer(mNetworkFetcher));
+      mCommonNetworkFetchToEncodedMemorySequence =
+          ProducerFactory.newAddImageTransformMetaDataProducer(inputProducer);
+
+      mCommonNetworkFetchToEncodedMemorySequence =
+          mProducerFactory.newResizeAndRotateProducer(
+              mCommonNetworkFetchToEncodedMemorySequence,
+              mResizeAndRotateEnabledForNetwork,
+              mUseDownsamplingRatio);
+    }
+    return mCommonNetworkFetchToEncodedMemorySequence;
+  }
+```
+
+
+
+##### NetworkFetcher
+
+```
 网络请求实现类，只在NetworkFetchProducer中使用。
 
 继承关系：
@@ -117,9 +260,19 @@ AbstractDataSource
 	-> BaseNetworkFetcher
 		-> HttpUrlConnectionNetworkFetcher (fresco默认使用的)
 		-> OkHttpNetworkFetcher
-
-
 ```
+
+
+
+
+
+
+
+
+
+![img](https://user-gold-cdn.xitu.io/2018/2/3/1615aa00f5bd8d76?imageslim)
+
+
 
 # 核心模块
 
@@ -218,15 +371,39 @@ DraweeHierarchy意为视图的层次结构，用来存储和描述图片的信�
 DraweeHolder是协调DraweeView、DraweeHierarchy、DraweeController这三个类交互工作的核心类。
 
 
-参考：
 
-* [Github 地址](https://github.com/facebook/fresco)
+### 模块结构
 
-* [中文官方文档](https://www.fresco-cn.org/)
+```
+demo
+	compile project(':drawee-backends:drawee-pipeline')
 
-* [优秀博客](http://blog.desmondyao.com/fresco-3-draweeview/#more)
+drawee-pipeline (包含在drawee-backends目录中，同级还有drawee-volly)
+	compile project(':drawee')
+    compile project(':fbcore')
+    compile project(':imagepipeline')
+    
+drawee
+	compile project(':fbcore')
+	
+imagepipeline
+	compile project(':fbcore')
+	
+fbcore
+	最底层module，提供file, log, datasource, memory等基础功能
+    
+```
+
+### 
+
+#参考：
+
+* [Fresco Github](https://github.com/facebook/fresco)
+
+* [Fresco官方文档](https://www.fresco-cn.org/)
 
 
+* [掘金-Android开源框架源码鉴赏：Fresco](https://juejin.im/post/5a7568825188257a7a2d9ddb#heading-3)
 
 
 
