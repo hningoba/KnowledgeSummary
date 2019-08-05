@@ -86,10 +86,10 @@
 
 ### Android 其他
 
-* [R文件相关知识](./Android/其他/Android R文件相关知识)
-* [Art和Dalvik区别]				(./Android/其他/Art和Dalvik区别.md)
+* R文件相关知识 [link](./Android/其他/Android R文件相关知识)
+* Art和Dalvik区别 [link](./Android/其他/Art和Dalvik区别.md)
 * Service两种启动方式
-* 详解注解处理器APT技术			[link](./Android/其他/详解APT.md)
+* 详解注解处理器APT技术 [link](./Android/其他/详解APT.md)
 * gradle
 * launchMode					[link](./Android/其他/launchMode.md)
 * Activity调用方式(显式&隐式)		[link](./Android/其他/Activity调用方式.md)
