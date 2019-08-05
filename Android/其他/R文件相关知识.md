@@ -15,9 +15,9 @@
 
 ```
 public final class R {
-		public static final class layout {
-				public static final int activity_main=0x7f09001c;
-		}
+	public static final class layout {
+		public static final int activity_main=0x7f09001c;
+	}
 }
 ```
 
@@ -27,10 +27,10 @@ MainActivity.class中R.layout.activity_main会被替换成常量值0x7f09001c，
 
 ```
 public class MainActivity extends AppCompatActivity {
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        this.setContentView(2131296284);
-    }
+	protected void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+		this.setContentView(2131296284);
+	}
 }
 ```
 
@@ -40,9 +40,9 @@ public class MainActivity extends AppCompatActivity {
 
 ```
 public final class R {
-		public static final class layout {
-				public static int activity_sub_module = 0x7f0f001d;
-		}
+	public static final class layout {
+		public static int activity_sub_module = 0x7f0f001d;
+	}
 }
 ```
 
@@ -79,8 +79,8 @@ demo项目依赖结构：
 
 ```
  - app (pkg: com.tools.demo)
- 	- library (pkg: com.tools.second)
- 		- third 	(pkg: com.tools.third)
+  - library (pkg: com.tools.second)
+   - third (pkg: com.tools.third)
 ```
 
 其中library引用了fresco。
