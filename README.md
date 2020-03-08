@@ -7,9 +7,7 @@
 * Tinker						[link](./Android/开源库/tinker.md)
 * ActivityRouter				[link](./Android/开源库/ActivityRouter.md)
 * ARouter					[link](./Android/开源库/ARouter.md)
-* ButterKnife
 * EventBus						[link](./Android/开源库/EventBus.md)
-* RxJava
 * Retrofit						[link](./Android/开源库/Retrofit.md)
 * OKHTTP						[link](./Android/开源库/OKHTTP.md)
 * LeakCanary					[link](./Android/开源库/LeakCanary.md)

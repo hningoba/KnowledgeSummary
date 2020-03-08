@@ -1,6 +1,3 @@
-# LeakCanary
-[优秀博客](https://mp.weixin.qq.com/s/0bO5BZ4CMYJbRuY_xf_osw)
-
 LeakCanary内存泄漏检测机制，大概是以下几个步骤：
 
 1. 利用 application.registerActivityLifecycleCallbacks(lifecycleCallbacks) 来监听整个生命周期内的 Activity onDestoryed 事件;
@@ -124,7 +121,7 @@ public static void install(Application application, RefWatcher refWatcher) {
 ```
 很好理解，当一个Activity的onDestroy()执行后，该Activity应该为null。如果不为null，说明内存泄漏了。所以，只需要在onDestroy()将当前Activity丢给RefWatcher监听就好。
 
-   
+
 ```
 **RefWatcher.java**
 
