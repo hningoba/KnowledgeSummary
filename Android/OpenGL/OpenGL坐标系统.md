@@ -194,6 +194,6 @@ Matrix.setLookAtM(float[] rm, int rmOffset,
 
 ### 参考：
 
-[learnopengl-坐标系统](https://learnopengl-cn.github.io/01 Getting started/08 Coordinate Systems/)
+[learnopengl-坐标系统](https://learnopengl-cn.github.io/01%20Getting%20started/08%20Coordinate%20Systems/)
 
-[learnopengl-摄像机](https://learnopengl-cn.github.io/01 Getting started/09 Camera/)
+[learnopengl-摄像机](https://learnopengl-cn.github.io/01%20Getting%20started/09%20Camera/)
