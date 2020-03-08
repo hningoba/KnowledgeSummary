@@ -61,13 +61,11 @@ public class SubModuleActivity extends AppCompatActivity {
 
 
 
-那么，R文件为什么要这么设计呢？
-
-​		假设library module中的R文件的资源声明也是以常量形式声明的话，代码中的资源引用会被替换成常量值。library module和application module中如果出现同名资源，根据R文件合并规则，该资源最终会以application中的资源为准，这就导致library module中代码里资源的常量值对应不到资源，报Resource NotFoundException。
+试想下，如果library module中的R文件的资源声明也是以常量形式声明的话，代码中的资源引用会被替换成常量值。library module和application module中如果出现同名资源，根据R文件合并规则，该资源最终会以application中的资源为准，这就导致library module中代码里资源的常量值对应不到资源，报Resource NotFoundException。
 
 
 
-### module中R文件个数为其依赖的module数+1
+### module中R文件个数
 
 ​		一个module被编译时，会生成一个当前module的R文件，同时，该module依赖的module或aar也会在当前module生成R文件。这种依赖关系也包括跨层的传递依赖。所以，一个module中R文件的个数 = 其依赖的module/aar数量 + 1(自身的R文件)。
 
@@ -97,15 +95,15 @@ app模块则包含了整个app所有模块的R文件，包括直接依赖(librar
 
 
 
-### Android资源合并规则
+### 资源合并规则
 
-Apk中的资源主要有3个来源：
+APK中的资源主要有3个来源：
 
 * The main source set (generally located in  src/main/res/)
 * Build variant source sets
 * Android libraries (AARs)
 
-​		一个资源文件的文件名在resource type(anim/drawable/layout/menu..)和resource qualifier(比如drawable中的hdpi、value中的语言) 目录内是唯一的话，这个资源就被认为是唯一的。
+​		一个资源文件的文件名在resource type (anim/drawable/layout/menu..) 和 resource qualifier (比如drawable中的hdpi、value中的语言) 目录内是唯一的话，这个资源就被认为是唯一的。
 
 ​		资源文件冲突时，按照下面的优先级进行合并，低优的资源会被覆盖。
 
@@ -113,7 +111,7 @@ Apk中的资源主要有3个来源：
 build variant > build type > product flavor > main source set > library dependencies
 ```
 
-比如：主资源集(main source set)包含以下资源：
+比如：main source set包含以下资源：
 
 - res/layout/foo.xml
 - res/layout-land/foo.xml
@@ -159,8 +157,4 @@ android {
 参考：
 
 [Android Resource merging](https://developer.android.com/studio/write/add-resources.html#resource_merging)
-
-[Android主项目和Module中R类的区别](https://juejin.im/post/5a98f240f265da23830a5193)
-
-
 

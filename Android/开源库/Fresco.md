@@ -1,20 +1,8 @@
-### 相关问题：
-1. Fresco 下载模块如何设计？<br>
-默认使用HTTPURLConnection，也支持使用OkHttp。下载类是NetworkFetcher。
-2. 图片缓存模块如何设计？<br>
-三级缓存：Bitmap缓存(5.0以前放Ashmen) + 未解码图片缓存 + 硬盘缓存
-3. 画出读缓存、网络请求的方法时序图
-4. 硬盘缓存如何设计？<br>
-5. SimpleDraweeView layout_width/height 为何不支持 wrap_content?<br>
-6. DraweeView多层结构？<br>
+### 整体结构图
 
 
 
-### 整体架构图：
-
-
-
-![Fresco主要模块结构图](https://github.com/hningoba/KnowledgeSummary/blob/master/img/fresco_sub_module.png)
+![Fresco主要模块结构图](http://ww2.sinaimg.cn/large/006tNc79ly1g4p3ulbhluj30u015n0y7.jpg)
 
 
 
@@ -32,9 +20,9 @@
 -> ImagePipeline.submitFetchRequest()
 -> CloseableProducerToDataSourceAdapter.create()
 -> AbstractProducerToDataSourceAdapter.construtor()
--> BitmapMemoryCacheGetProducer.produceResults() //后面是拿数据过程，有内存/磁盘/网络多种Producer
 
 case1: 首次冷启动APP加载图片，没有BitmapCache，但有磁盘缓存
+-> BitmapMemoryCacheGetProducer.produceResults() //后面是拿数据过程，有内存/磁盘/网络多种Producer
 -> ThreadHandoffProducer.produceResults()
 -> StatefulRunnable.onSuccess()
 -> BitmapMemoryCacheKeyMultiplexProducer.produceResults()
@@ -52,7 +40,7 @@ case1: 首次冷启动APP加载图片，没有BitmapCache，但有磁盘缓存
 -> BufferedDiskCache.getAsync(). Callable.call()
 	Q: disk cache staging area???
 -> BufferedDiskCache.readFromDiskCache() // 读取磁盘文件
--> DiskStorageCache.getResource()
+-> DiskStorageCache.getResource() // 获取本地资源，如果修改缓存策略，可以在这里处理
 -> DefaultDiskStorage.getResource()
 -> DiskCacheReadProducer.onFinishDiskReads()
 -> DiskCacheReadProducer.Continuation.then()
@@ -85,12 +73,12 @@ case2: 没有BitmapCache、磁盘缓存，走网络请求
 SimpleDraweeView attach到window时，执行如下流程：
 
 ```
--> DraweeView. onAttachedwindow()
--> DraweeHolder. onAttach()
--> DraweeHolder. attachController()
--> AbstrackDraweeController. onAttach()
--> AbstrackDraweeController. submitRequest()
--> AbstractDataSource. subscribe()
+-> DraweeView.onAttachedwindow()
+-> DraweeHolder.onAttach()
+-> DraweeHolder.attachController()
+-> AbstrackDraweeController.onAttach()
+-> AbstrackDraweeController.submitRequest()
+-> AbstractDataSource.subscribe()
 ```
 
 
@@ -100,6 +88,28 @@ SimpleDraweeView attach到window时，执行如下流程：
 ##### ImagePipline
 
 负责从网络、本地文件、本地资源加载图片，并将其解码到内存中供系统使用。
+
+Fresco 中设计有一个叫做 Image Pipeline 的模块。它负责从网络，从本地文件系统，本地资源加载图片。为了最大限度节省空间和CPU时间，它含有3级缓存设计（2级内存，1级磁盘）。
+
+Image pipeline 负责完成加载图像，变成Android设备可呈现的形式所要做的每个事情。
+
+大致流程如下:
+
+- 检查内存缓存，如有，返回
+- 后台线程开始后续工作
+- 检查是否在未解码内存缓存中。如有，解码，变换，返回，然后缓存到内存缓存中。
+- 检查是否在磁盘缓存中，如果有，变换，返回。缓存到未解码缓存和内存缓存中。
+- 从网络或者本地加载。加载完成后，解码，变换，返回。存到各个缓存中。
+
+既然本身就是一个图片加载组件，那么一图胜千言。
+![](https://www.fresco-cn.org/static/imagepipeline.png)
+
+
+
+##### Drawees
+
+Fresco 中设计有一个叫做 Drawees 模块，它会在图片加载完成前显示占位图，加载成功后自动替换为目标图片。当图片不再显示在屏幕上时，它会及时地释放内存和空间占用。
+
 
 ```
 
@@ -182,6 +192,8 @@ WebpTranscodeProducer：
 
 从主要环节代码流程就可以看到，Producer是一种从上到下的层次结构，类似于责任链模式。图片请求过程从上层Producer逐层向下，每层Producer无法处理结果就把请求丢到下层Producer，即其内部的mInputProducer。到达某一层Producer拿到结果后，就通过内部成员Consumer将结果回调给外部。Consumer回调的顺序和Producer相反，从下到上。
 
+Producer上下层级接口可参考"整体架构图"。
+
 
 
 Producer流的入口在ImagePipeline.fetchDecodedImage()
@@ -258,54 +270,21 @@ ProducerSequenceFactory.class
 继承关系：
 -> NetworkFetcher (I)
 	-> BaseNetworkFetcher
-		-> HttpUrlConnectionNetworkFetcher (fresco默认使用的)
+		-> HttpUrlConnectionNetworkFetcher (default)
 		-> OkHttpNetworkFetcher
 ```
 
 
 
 
+### 缓存结构
+三级缓存：Bitmap Cache,  Encoded Memory Cache , Disk Cache
+
+![freso_cache_structure](http://ww1.sinaimg.cn/large/006tNc79ly1g4tdgrd96fj30u013sakh.jpg)
 
 
 
-
-
-![img](https://user-gold-cdn.xitu.io/2018/2/3/1615aa00f5bd8d76?imageslim)
-
-
-
-# 核心模块
-
-###### ImagePipeline
-Fresco 中设计有一个叫做 Image Pipeline 的模块。它负责从网络，从本地文件系统，本地资源加载图片。为了最大限度节省空间和CPU时间，它含有3级缓存设计（2级内存，1级磁盘）。
-
-Image pipeline 负责完成加载图像，变成Android设备可呈现的形式所要做的每个事情。
-
-大致流程如下:
-
-* 检查内存缓存，如有，返回
-* 后台线程开始后续工作
-* 检查是否在未解码内存缓存中。如有，解码，变换，返回，然后缓存到内存缓存中。
-* 检查是否在磁盘缓存中，如果有，变换，返回。缓存到未解码缓存和内存缓存中。
-* 从网络或者本地加载。加载完成后，解码，变换，返回。存到各个缓存中。
-
-
-既然本身就是一个图片加载组件，那么一图胜千言。
-![](https://www.fresco-cn.org/static/imagepipeline.png)
-
-
-
-###### Drawees
-Fresco 中设计有一个叫做 Drawees 模块，它会在图片加载完成前显示占位图，加载成功后自动替换为目标图片。当图片不再显示在屏幕上时，它会及时地释放内存和空间占用。
-<br>
-<br>
-<br>
-
-
-# 特性
-### 1. 内存
-
-[三级缓存]
+##### 1. 内存缓存
 
 ```
 **1. Bitmap缓存**
@@ -331,7 +310,7 @@ Ashmem存储区域：它是一个不在Java堆区的一片存储内存空间，�
 ```
 
 
-##### 使用三级缓存：Bitmap缓存 + 未解码图片缓存 + 硬盘缓存
+
 其中前两个就是内存缓存，Bitmap缓存根据系统版本不同放在了不同内存区域中，而未解码图片的缓存只在堆内存中，Fresco分了两步做内存缓存，这样做有什么好处呢？好处是加快图片的加载速度。
 
 Fresco的加载图片的流程为：
@@ -352,10 +331,11 @@ imagePipeline.clearDiskCaches();
 imagePipeline.clearCaches();
 ```
 
+##### 2. 未解码内存缓存
 
-### 2. 硬盘缓存
+##### 3.硬盘缓存
 
-### 3. MVC结构
+### 视图结构
 ```
 DraweeView			--	View
 DraweeController	-- Controller
@@ -367,12 +347,13 @@ DraweeView用来显示顶层视图（getTopLevelDrawable()）。
 DraweeController控制加载图片的配置、顶层显示哪个视图以及控制事件的分发。 
 DraweeHierarchy意为视图的层次结构，用来存储和描述图片的信息，同时也封装了一些图片的显示和视图层级的方法。
 
-###### DraweeHolder
+DraweeHolder：
+
 DraweeHolder是协调DraweeView、DraweeHierarchy、DraweeController这三个类交互工作的核心类。
 
 
 
-### 模块结构
+### 项目结构
 
 ```
 demo
@@ -394,9 +375,98 @@ fbcore
     
 ```
 
-### 
 
-#参考：
+
+###图片编解码
+
+### 其他问题
+
+##### 1. 前后台切换或页面转场动画时，DraweeView闪烁
+
+原因是，Fresco为了内存考虑，当页面不可见时，会释放图片资源，页面可见时再重新加载。官方文档已经做了解释，[参见](https://frescolib.org/docs/writing-custom-views.html)
+
+```
+There is no point in images staying in memory when Android is no longer displaying the view - it may have scrolled off-screen, or otherwise not be drawing. Drawees listen for detaches and release memory when they occur. They will automatically restore the image when it comes back on-screen.
+```
+
+看下页面visibility变化时，代码流程。
+
+DraweeHolder.class
+
+```
+/**
+   * Callback used to notify about top-level-drawable's visibility changes.
+   */
+  @Override
+  public void onVisibilityChange(boolean isVisible) {
+    ...
+    attachOrDetachController();
+  }
+  
+  private void attachOrDetachController() {
+    if (mIsHolderAttached && mIsVisible) {
+      attachController();
+    } else {
+      detachController();
+    }
+  }
+```
+
+
+
+```
+AbstractDraweeController.class
+
+@Override
+  public void release() {
+    mEventTracker.recordEvent(Event.ON_RELEASE_CONTROLLER);
+    if (mRetryManager != null) {
+      mRetryManager.reset();
+    }
+    if (mGestureDetector != null) {
+      mGestureDetector.reset();
+    }
+    if (mSettableDraweeHierarchy != null) {
+      mSettableDraweeHierarchy.reset();
+    }
+    releaseFetch();
+  }
+  
+```
+
+  GenericDraweeHierarchy.class
+
+```
+ @Override
+  public void reset() {
+    resetActualImages();
+    resetFade();
+  }
+  
+  private void resetActualImages() {
+    mActualImageWrapper.setDrawable(mEmptyActualImageDrawable);
+  }
+```
+
+
+
+
+
+### 待研究
+
+1. 下面三个Drawable是什么区别？
+
+   ```
+   GenericDraweeHierarchy.class {
+       private final RootDrawable mTopLevelDrawable;
+       private final FadeDrawable mFadeDrawable;
+       private final ForwardingDrawable mActualImageWrapper;
+   }
+   ```
+
+   
+
+###参考
 
 * [Fresco Github](https://github.com/facebook/fresco)
 

@@ -1,12 +1,9 @@
-#Vue用法
-
 
 ### 1. Prop 用法
 
+父子组件在数据传递和事件通信时，就需要用到prop。
 
-prop的思想是 props down, event up。
-
-即父组件向子组件传递数据，子组件交互后事件回调给父组件，数据流是单向。
+prop的思想是 props down, event up。即父组件向子组件传递数据，子组件交互后事件回调给父组件，数据流是单向。
 
 示例：
 
@@ -15,15 +12,15 @@ parent:
 ```
 <template>
 	      <!-- 
-	      'component_name':子component的参数，通过prop机制父传递给子
-	      'txt_sub_component':父component的参数，修改它就能修改子中的component_name
+	      'component_name':	 子component的参数，通过prop机制父传递给子
+	      'txt_sub_component': 父component的参数，修改它就能修改子中的component_name
 	      'btnComponentClicked'：子component发射的函数，即回调给父的方法
-	      'eventFromChild': 父中的方法
+	      'eventFromChild': 父组件中的方法
 	      -->
       
       <ButtonComponent 
 	      v-bind:component_name="txt_sub_component" 
-   		   v-on:btnComponentClicked="eventFromChild">init</ButtonComponent>
+	      v-on:btnComponentClicked="eventFromChild">init</ButtonComponent>
 
 </template>
 
@@ -48,15 +45,15 @@ child:
 </template>
 
 <script>
-export default {
-  props: ['component_name'],
-  methods: {
-    onSubComponentClicked: function() {
-        // event up，btnComponentClicked是父组件中定义的响应函数
-        this.$emit('btnComponentClicked')
-    }
-  }
-}
+	export default {
+	  props: ['component_name'],
+	  methods: {
+	    onSubComponentClicked: function() {
+	        // event up，btnComponentClicked是父组件中定义的响应函数
+	        this.$emit('btnComponentClicked')
+	    }
+	  }
+	}
 </script>
 
 ```
@@ -76,7 +73,7 @@ parent:
    </div>
    		// 声明子组件
 	 	<SlotComponent>
-	 		// HTML模板代码，写在父组件中，子组件的slot会被渲染成下面这段模板
+	 	// HTML模板代码，写在父组件中，子组件的<slot></slot>会被渲染成下面这段模板
           <div >
               <span>菜单1</span>
               <span>菜单2</span>
@@ -96,7 +93,7 @@ child: SlotComponent.vue
 <template>
     <div class="slot_component">
         <h3>这里是子组件</h3>
-        // 父组件中的HTML模板会替换slot，被渲染出来
+        // 父组件中的HTML模板会替换<slot></slot>，被渲染出来
         <slot></slot>
     </div>
 </template>
@@ -122,3 +119,69 @@ export default {
 
 [深入理解vue中的slot与slot-scope](https://juejin.im/post/5a69ece0f265da3e5a5777ed)
 
+### 3. VueRouter 用法
+
+作用：使用router可以路由到其他页面，使得创建单页面应用变得简单许多。
+
+模块化机制示例：
+
+index.js
+
+```
+import VueRouter from 'vue-router'
+
+// 1. 使用router
+Vue.use(VueRouter)
+
+// 2. 定义路由
+// 每个路由应该映射一个组件。 其中"component" 可以是
+// 通过 Vue.extend() 创建的组件构造器，
+// 或者，只是一个组件配置对象。
+const routes = [
+  {path: '/', component: HomePage}, 
+  {path: '/about',component: AboutPage}
+]
+
+// 3. 创建 router 实例，然后传 `routes` 配置
+export default new VueRouter({
+  // 创建路由映射
+  routes
+})
+```
+
+HomePage.Vue
+
+```
+method: function() {
+	<!-- 路由且传参到About页面 -->
+	navigationAbout() {
+		this.$router.push({
+        path:'/about'
+        query:{
+          id:1234
+        }
+      })
+	}
+}
+
+```
+
+AboutPage.vue 
+
+```
+<!-- 获取参数使用route -->
+created: function() {
+    this.id = this.$route.query.id;
+}
+
+```
+
+注意：访问路由器使用的是router，访问当前路由使用route，没有字母"r"。
+
+参考：
+
+[VueRoter](https://router.vuejs.org/zh/)
+
+
+
+### 4. slot-scope作用
