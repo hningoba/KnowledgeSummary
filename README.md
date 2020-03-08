@@ -1,4 +1,4 @@
-部分内容为了阅读体验，会同步到我的[博客](https://hningoba.github.io/ )。
+为了更好的阅读体验，部分内容会同步到我的[博客](https://hningoba.github.io/ )。
 
 
 ### 开源库源码分析
