@@ -36,7 +36,7 @@ OpenGL需要通过一系列坐标变换，才能将我们设置的顶点坐标�
 
 正如你看到的那样，由于透视，这两条线在很远的地方看起来会相交。这正是透视投影想要模仿的效果，它是使用透视投影矩阵来完成的。这个投影矩阵将给定的平截头体范围映射到裁剪空间，除此之外还修改了每个顶点坐标的w值，从而使得离观察者越远的顶点坐标w分量越大。被变换到裁剪空间的坐标都会在-w到w的范围之间（任何大于这个范围的坐标都会被裁剪掉）。OpenGL要求所有可见的坐标都落在-1.0到1.0范围内，作为顶点着色器最后的输出，因此，一旦坐标在裁剪空间内之后，透视除法就会被应用到裁剪空间坐标上：
 
-<img src="./image/perspective-formula.png" style="zoom:67%;" />
+<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/image/opengl_perspective-formula.png?raw=true" width="50%" height="50%"/>
 
 透视平截头体如下图所示：
 
@@ -48,7 +48,7 @@ OpenGL需要通过一系列坐标变换，才能将我们设置的顶点坐标�
 
 上述的每一个步骤都创建了一个变换矩阵：模型矩阵、观察矩阵和投影矩阵。一个顶点坐标将会根据以下过程被变换到裁剪坐标：
 
-<img src="coordinate_matrix_transform.png" style="zoom:67%;" />
+<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/image/opengl_coordinate_matrix_transform.png?raw=true" width="50%" height="50%"/>
 
 注意矩阵运算的顺序是相反的（记住我们需要从右往左阅读矩阵的乘法）。最后的顶点应该被赋值到顶点着色器中的gl_Position，OpenGL将会自动进行透视除法和裁剪。
 
