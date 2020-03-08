@@ -36,7 +36,9 @@ OpenGL需要通过一系列坐标变换，才能将我们设置的顶点坐标�
 
 正如你看到的那样，由于透视，这两条线在很远的地方看起来会相交。这正是透视投影想要模仿的效果，它是使用透视投影矩阵来完成的。这个投影矩阵将给定的平截头体范围映射到裁剪空间，除此之外还修改了每个顶点坐标的w值，从而使得离观察者越远的顶点坐标w分量越大。被变换到裁剪空间的坐标都会在-w到w的范围之间（任何大于这个范围的坐标都会被裁剪掉）。OpenGL要求所有可见的坐标都落在-1.0到1.0范围内，作为顶点着色器最后的输出，因此，一旦坐标在裁剪空间内之后，透视除法就会被应用到裁剪空间坐标上：
 
-<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/image/opengl_perspective-formula.png?raw=true" width="50%" height="50%"/>
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/Android/OpenGL/image/opengl_perspective-formula.png" width="30%"/>
+
+
 
 透视平截头体如下图所示：
 
@@ -48,7 +50,7 @@ OpenGL需要通过一系列坐标变换，才能将我们设置的顶点坐标�
 
 上述的每一个步骤都创建了一个变换矩阵：模型矩阵、观察矩阵和投影矩阵。一个顶点坐标将会根据以下过程被变换到裁剪坐标：
 
-<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/image/opengl_coordinate_matrix_transform.png?raw=true" width="50%" height="50%"/>
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/Android/OpenGL/image/opengl_coordinate_matrix_transform.png" width="50%"/>
 
 注意矩阵运算的顺序是相反的（记住我们需要从右往左阅读矩阵的乘法）。最后的顶点应该被赋值到顶点着色器中的gl_Position，OpenGL将会自动进行透视除法和裁剪。
 
@@ -83,11 +85,9 @@ static float triangleCoords[] = {
 
 其实根据三个顶点坐标我们可以看的出来，这应该是个等腰直角三角形。如果没有经过特殊处理（坐标系变换），直接在GLSurfaceView上画出来效果可能是下面这样：
 
-<img src="opengl_triangle_origin.png" width="50%" height="50%"/>
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/Android/OpenGL/image/opengl_triangle_origin.png" width="50%" height="50%"/>
 
 会发现三角形两个腰并不相等。原因是GLSurfaceView的宽高并不相等，OpenGL坐标系向Android屏幕坐标系映射时宽高是分别映射的，屏幕(GLSurfaceView)宽高不同就导致了映射比例不一致的问题。
-
-<img src="./image/OpenGL和屏幕映射图.png" style="zoom:50%;" />
 
 要解决这个问题就可以用开头提到的坐标系变换进行校正，这样，我们的图形对象在任何屏幕上都具有正确的比例。
 
@@ -154,7 +154,7 @@ private final String vertexShaderCode =
 
 校正后就能得到等腰直角三角形：
 
-<img src="./image/isosceles_triangle.png" style="zoom:33%;" />
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/Android/OpenGL/image/opengl_isosceles_triangle.png" width="50%"/>
 
 对示例代码中的关键方法做个介绍：
 
