@@ -78,9 +78,11 @@ GLES20.glUseProgram(mProgram);
 
 ### 示例代码
 
-以创建三角形为例，走下上述创建着色器对象并链接程序的过程，每一步都有基本的注释。对细节不是特别清楚的可以参考这个网站，入门OpenGL非常好的一个[教程网站](https://learnopengl-cn.github.io/01 Getting started/04 Hello Triangle/))。
+以创建三角形为例，走下上述创建着色器对象并链接程序的过程，每一步都有基本的注释。对细节不是特别清楚的可以参考这个网站，入门OpenGL非常好的一个[教程网站](https://learnopengl-cn.github.io/01%20Getting%20started/04%20Hello%20Triangle/))。
 
-<img src="/img/opengl_triangle.png" style="zoom: 50%;" />
+<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/image/opengl_triangle.png?raw=true" style="zoom: 50%;" />
+
+
 
 ```
 class TriangleRenderer : BaseRenderer() {
