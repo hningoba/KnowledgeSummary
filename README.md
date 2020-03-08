@@ -15,6 +15,12 @@
 * LeakCanary					[link](./Android/开源库/LeakCanary.md)
 * AtLast						[link](./Android/开源库/atlast.md)
 
+### OpenGL ES
+
+* [OpenGL创建EGL窗口的过程](https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/OpenGL%E5%88%9B%E5%BB%BAEGL%E7%AA%97%E5%8F%A3%E7%9A%84%E8%BF%87%E7%A8%8B.md)
+* [OpenGL变量uniform、attribute和varying](https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/OpenGL%E5%8F%98%E9%87%8Funiform%E3%80%81attribute%E5%92%8Cvarying.md)
+* [OpenGL坐标系统及应用](https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/OpenGL%E5%9D%90%E6%A0%87%E7%B3%BB%E7%BB%9F.md)
+* [OpenGL着色器和程序](https://github.com/hningoba/KnowledgeSummary/blob/master/Android/OpenGL/OpenGL%E7%9D%80%E8%89%B2%E5%99%A8%E5%92%8C%E7%A8%8B%E5%BA%8F.md)
 
 ### APP性能优化
 
@@ -37,7 +43,7 @@
 	* ANR 分析
 * 性能优化4/5 -- 耗电优化			[link](./Android/APP性能优化/耗电优化.md)
 * 性能优化5/5 -- 安装包优化		[link](./Android/APP性能优化/安装包优化.md)
-* 编译优化	[link](./Android/APP性能优化/Android 编译优化.md)
+* 编译优化
 * 内存泄漏工程实践
 * OOM定位及解决方案
 * 安全、加固
