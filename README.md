@@ -1,17 +1,14 @@
 部分内容为了阅读体验，会同步到我的[博客](https://hningoba.github.io/ )。
 
 
-### 开源库
+### 开源库源码分析
 
 * Fresco						[link](./Android/开源库/Fresco.md)
 * Tinker						[link](./Android/开源库/tinker.md)
 * ActivityRouter				[link](./Android/开源库/ActivityRouter.md)
 * ARouter					[link](./Android/开源库/ARouter.md)
 * EventBus						[link](./Android/开源库/EventBus.md)
-* Retrofit						[link](./Android/开源库/Retrofit.md)
-* OKHTTP						[link](./Android/开源库/OKHTTP.md)
 * LeakCanary					[link](./Android/开源库/LeakCanary.md)
-* AtLast						[link](./Android/开源库/atlast.md)
 
 ### OpenGL ES
 
@@ -23,7 +20,7 @@
 ### APP性能优化
 
 * 总览篇							[link](./Android/APP性能优化/总览篇.md)
-* 性能优化1/5 -- 绘制优化			[link](./Android/APP性能优化/绘制优化.md)
+* 绘制优化			[link](./Android/APP性能优化/绘制优化.md)
   * Android系统显示原理
   * 布局优化
   * 避免过度绘制
@@ -32,15 +29,15 @@
   * 提升动画性能
   * 滑动卡顿
   * 工具篇	
-* 性能优化2/5 -- 内存优化			[link](./Android/APP性能优化/内存优化.md)
+* 内存优化			[link](./Android/APP性能优化/内存优化.md)
 	* 内存占用分析工具
 	* 内存泄漏分析					[link](./Android/APP性能优化/内存泄漏分析及解决.md)
-* 性能优化3/5 -- 稳定性优化		[link](./Android/APP性能优化/稳定性优化.md)
+* 稳定性优化		[link](./Android/APP性能优化/稳定性优化.md)
 	* Java层Crash监控
 	* Native层Crash监控
 	* ANR 分析
-* 性能优化4/5 -- 耗电优化			[link](./Android/APP性能优化/耗电优化.md)
-* 性能优化5/5 -- 安装包优化		[link](./Android/APP性能优化/安装包优化.md)
+* 耗电优化			[link](./Android/APP性能优化/耗电优化.md)
+* 安装包优化		[link](./Android/APP性能优化/安装包优化.md)
 * 编译优化
 * 内存泄漏工程实践
 * OOM定位及解决方案

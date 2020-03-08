@@ -1,4 +1,4 @@
-​		Android通过AAPT(Android Asset Packing Tool)将各种资源集成打包并生成索引文件，即R文件。做模块化或编译优化相关工作时，需要对R文件有更多的了解，比如library module中的资源需要加resourcePrefix，做增量编译时可以只编译application module中的R文件等等。
+		Android通过AAPT(Android Asset Packing Tool)将各种资源集成打包并生成索引文件，即R文件。做模块化或编译优化相关工作时，需要对R文件有更多的了解，比如library module中的资源需要加resourcePrefix，做增量编译时可以只编译application module中的R文件等等。
 
 ### application和library module中R文件的区别
 
@@ -154,7 +154,7 @@ android {
 
 
 
-参考：
+### 参考：
 
 [Android Resource merging](https://developer.android.com/studio/write/add-resources.html#resource_merging)
 

@@ -1,23 +1,21 @@
-
-
-### 方案对比
+### 热补丁方案对比
 
 当前比较流行的热补丁方案有微信Tinker、阿里AndFix、美团Robust、QZone超级补丁。每个平台都有自己的局限，大家在技术选型时可以根据业务需要做选择。
 
 | 特性 | Tinker |	QZone |	AndFix | Robust |
 | ------|:-------|:------:| -----:| -----:|
-| 类替换 | yes | yes | no | no | 
-| So替换	| yes	| no	| no| 	no| 
-| 资源替换| 	yes| 	yes| 	no| 	no| 
-| 全平台支持| 	yes| 	yes| 	yes| yes| 
-| 即时生效| 	no| 	no| 	yes| 	yes| 
-| 性能损耗| 	较小| 	较大| 	较小| 	较小| 
-| 补丁包大小| 	较小| 	较大| 	一般| 一般| 
-| 开发透明| 	yes| 	yes| 	no| 	no| 
-| 复杂度| 	较低| 	较低| 	复杂| 	复杂| 
-| gradle支持| 	yes| 	no| 	no| no| 
-| Rom体积| 	较大| 	较小| 	较小| 	较小| 
-| 成功率| 	较高| 	较高| 	一般| 	最高| 
+| 类替换 | yes | yes | no | no |
+| So替换	| yes	| no	| no| 	no|
+| 资源替换| 	yes| 	yes| 	no| 	no|
+| 全平台支持| 	yes| 	yes| 	yes| yes|
+| 即时生效| 	no| 	no| 	yes| 	yes|
+| 性能损耗| 	较小| 	较大| 	较小| 	较小|
+| 补丁包大小| 	较小| 	较大| 	一般| 一般|
+| 开发透明| 	yes| 	yes| 	no| 	no|
+| 复杂度| 	较低| 	较低| 	复杂| 	复杂|
+| gradle支持| 	yes| 	no| 	no| no|
+| Rom体积| 	较大| 	较小| 	较小| 	较小|
+| 成功率| 	较高| 	较高| 	一般| 	最高|
 
 
 总的来说:
