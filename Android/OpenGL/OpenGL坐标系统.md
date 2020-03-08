@@ -83,7 +83,7 @@ static float triangleCoords[] = {
 
 其实根据三个顶点坐标我们可以看的出来，这应该是个等腰直角三角形。如果没有经过特殊处理（坐标系变换），直接在GLSurfaceView上画出来效果可能是下面这样：
 
-<img src="./image/triangle_origin.png" style="zoom: 33%;" />
+<img src="opengl_triangle_origin.png" width="50%" height="50%"/>
 
 会发现三角形两个腰并不相等。原因是GLSurfaceView的宽高并不相等，OpenGL坐标系向Android屏幕坐标系映射时宽高是分别映射的，屏幕(GLSurfaceView)宽高不同就导致了映射比例不一致的问题。
 
