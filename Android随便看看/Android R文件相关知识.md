@@ -1,4 +1,9 @@
-		Android通过AAPT(Android Asset Packing Tool)将各种资源集成打包并生成索引文件，即R文件。做模块化或编译优化相关工作时，需要对R文件有更多的了解，比如library module中的资源需要加resourcePrefix，做增量编译时可以只编译application module中的R文件等等。
+---
+title: Android R文件相关知识
+categories: 技术
+---
+Android通过AAPT(Android Asset Packing Tool)将各种资源集成打包并生成索引文件，即R文件。做模块化或编译优化相关工作时，需要对R文件有更多的了解，比如library module中的资源需要加resourcePrefix，做增量编译时可以只编译application module中的R文件等等。
+<!--more-->
 
 ### application和library module中R文件的区别
 
@@ -11,7 +16,9 @@
 
 举个例子：
 
-​		在application module中新建MainActivity，布局文件是activity_main.xml。编译后，application module的R文件中可以看到：
+application module:
+
+在application module中新建MainActivity，布局文件是activity_main.xml。编译后，application module的R文件中可以看到：
 
 ```
 public final class R {
@@ -35,8 +42,9 @@ public class MainActivity extends AppCompatActivity {
 ```
 
 
+library module:
 
-​		在library module中新建SubModuleActivity，布局文件是activity_sub_module.xml。编译后，library module中的R文件是：
+在library module中新建SubModuleActivity，布局文件是activity_sub_module.xml。编译后，library module中的R文件是：
 
 ```
 public final class R {
@@ -85,12 +93,12 @@ demo项目依赖结构：
 
 编译后，library模块中不仅包含了自身的R文件(com.tools.second.R)，还包含了依赖的module(third模块)和依赖的aar(fresco)的R文件。
 
-<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/img/R%E6%96%87%E4%BB%B6%E7%BB%93%E6%9E%84_library.png?raw=true" style="zoom:70" />
+<img src="/img/R文件结构_library.png" style="zoom:30%" />
 
 app模块则包含了整个app所有模块的R文件，包括直接依赖(library)和间接依赖(third, fresco)的所有module/aar的R文件。
 
-<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/img/R%E6%96%87%E4%BB%B6%E7%BB%93%E6%9E%84_app.png?raw=true" style="zoom:70" />
 
+<img src="/img/R文件结构_app.png" style="zoom:30%" />
 
 
 
