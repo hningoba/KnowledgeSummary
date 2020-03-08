@@ -26,14 +26,14 @@
 
 * 总览篇							[link](./Android/APP性能优化/总览篇.md)
 * 性能优化1/5 -- 绘制优化			[link](./Android/APP性能优化/绘制优化.md)
-	* Android系统显示原理
-	* 布局优化
-	* 避免过度绘制
-	* 启动优化
-	* 合理刷新机制
-	* 提升动画性能
-	* 滑动卡顿
-	* 工具篇	
+  * Android系统显示原理
+  * 布局优化
+  * 避免过度绘制
+  * 启动优化
+  * 合理刷新机制
+  * 提升动画性能
+  * 滑动卡顿
+  * 工具篇	
 * 性能优化2/5 -- 内存优化			[link](./Android/APP性能优化/内存优化.md)
 	* 内存占用分析工具
 	* 内存泄漏分析					[link](./Android/APP性能优化/内存泄漏分析及解决.md)
@@ -47,15 +47,6 @@
 * 内存泄漏工程实践
 * OOM定位及解决方案
 * 安全、加固
-
-
-### UI
-
-* SurfaceView VS TextureView	[link](./Android/UI/UI.md)
-* ConstraintLayout				[link](./Android/UI/UI.md)
-* 常用Drawable
-* Drawable VS Bitmap
-* CoordinateLayout.Behavior
 
 
 ### 图片相关
@@ -111,32 +102,7 @@
 * Android进程间通信--Binder		[link](./MultiThread/Android进程间通信--Binder.md)
 * 多线程间通信					[link](./MultiThread/多线程间通信.md)
 * 线程安全						[link](./MultiThread/线程安全.md)
-* 多线程池的优化（OKHTTP里面有）
 * ThreadLocal					[link](./MultiThread/ThreadLocal.md)
 * ReentrantLock					[link](./MultiThread/ReentrantLock.md)
 * 同步相关知识					[link](./MultiThread/同步相关知识.md)
-
-
-### 设计模式
-* 代理，动态代理（Retrofit）					[link](./DesignPattern/代理.md)
-* 责任链（OKHTTP、Android事件分发）
-* 观察者（RxJava）
-* 装饰者（Java I/O Stream）
-* 生产者消费者
-
-
-### 数据结构
-* LinkedHashMap					[link](./DataStructrue/LinkedHashMap.md)
-* SparseArray					[link](./DataStructrue/SparseArray.md)
-* TreeMap (支持红黑树排序)
-* ConcurrentHashMap				[link](./DataStructrue/ConcurrentHashMap.md)
-* HashTable
-* HashMap源码,SpareArray原理
-* HashMap实现原理，ConcurrentHashMap 的实现原理
-* 排序，快速排序的实现
-* 树：B+树的介绍
-* 图：有向无环图的解释
-* 阻塞队列BlockQueue
-
-
 
