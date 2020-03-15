@@ -3,7 +3,7 @@
 
 ### 开源库源码分析
 
-* Fresco						[link](./Android/开源库/Fresco.md)
+* Fresco
 * Tinker						[link](./Android/开源库/tinker.md)
 * ActivityRouter				[link](./Android/开源库/ActivityRouter.md)
 * ARouter					[link](./Android/开源库/ARouter.md)

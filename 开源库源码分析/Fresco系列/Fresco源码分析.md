@@ -1049,7 +1049,7 @@ public static void closeSafely(@Nullable CloseableReference<?> ref) {
 
 
 
-##参考
+## 参考
 
 * [Fresco Github](https://github.com/facebook/fresco)
 
