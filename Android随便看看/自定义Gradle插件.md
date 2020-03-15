@@ -91,3 +91,10 @@ String androidJar = "${android.sdkDirectory.absolutePath}/platforms/${android.co
 ClassPool.getDefault().insertClassPath(androidJar)
 ```
 
+
+
+### 参考
+
+[Developing Custom Gradle Plugins](https://docs.gradle.org/current/userguide/custom_plugins.html#custom_plugins)
+
+[Using Gradle Plugins](https://docs.gradle.org/current/userguide/plugins.html)
