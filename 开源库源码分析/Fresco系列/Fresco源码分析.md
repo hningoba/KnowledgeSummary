@@ -804,6 +804,10 @@ public static String makeSHA1HashBase64(byte[] bytes) {
 
 磁盘读取文件``Storage.getResource(resourceId, key)``内部实现主要是组装文件绝对路径的过程，感兴趣可以看下``DynamicDefaultDiskStorage.get()``的实现，这里就不展开了。
 
+
+
+**磁盘文件绝对路径：**
+
 以下面一个磁盘文件绝对路径名示例讲下整个路径的组成结构：
 
 ``/data/user/0/your_package_name/cache/image_cache/v2.ols100.1/58/YvKmnI_toMgXiCXuQ5XdkEQDv7A.cnt``
@@ -819,6 +823,96 @@ public static String makeSHA1HashBase64(byte[] bytes) {
 * YvKmnI_toMgXiCXuQ5XdkEQDv7A：resourceId
 
 * .cnt：content文件类型后缀
+
+
+
+**写磁盘逻辑：**
+
+从网络获取到图片后，会通过DiskCacheWriteProducer写到磁盘中。具体实现在BufferdDiskCache。
+
+```
+BufferdDiskCache.java
+
+private void writeToDiskCache(
+      final CacheKey key,
+      final EncodedImage encodedImage) {
+    ...
+      mFileCache.insert(
+          key, new WriterCallback() {
+            @Override
+            public void write(OutputStream os) throws IOException {
+            	// 回调中执行写文件逻辑
+              mPooledByteStreams.copy(encodedImage.getInputStream(), os);
+            }
+          }
+      );
+      ...
+  }
+```
+
+然后执行DiskStorageCache.insert()
+
+```
+DiskStorageCache.java
+
+  @Override
+  public BinaryResource insert(CacheKey key, WriterCallback callback) throws IOException {
+    ...
+    synchronized (mLock) {
+      // for multiple resource ids associated with the same image, we only write one file
+      // 根据key获取文件resourceId
+      resourceId = CacheKeyUtil.getFirstResourceId(key);
+    }
+
+      // 准备工作，包括如果磁盘空间相对配置溢出，清理磁盘缓存
+      DiskStorage.Inserter inserter = startInsert(resourceId, key);
+      // 内部会回调WriterCallback，即上面代码块，执行真正的写文件操作
+        inserter.writeData(callback, key);
+        // Committing the file is synchronized
+        BinaryResource resource = endInsert(inserter, key, resourceId);
+      ...
+  }
+```
+
+具体写文件的逻辑是回调WriterCallback执行的。看下清理磁盘缓存的逻辑
+
+```
+DiskStorageCache.java
+
+private void evictAboveSize(
+      long desiredSize,
+      CacheEventListener.EvictionReason reason) throws IOException {
+    Collection<DiskStorage.Entry> entries;
+
+    // 根据磁盘文件的时间戳timestamp进行排序
+      entries = getSortedEntries(mStorage.getEntries());
+    
+		// 计算需要清理多少文件
+    long cacheSizeBeforeClearance = mCacheStats.getSize();
+    long deleteSize = cacheSizeBeforeClearance - desiredSize;
+    int itemCount = 0;
+    long sumItemSizes = 0L;
+    
+    for (DiskStorage.Entry entry: entries) {
+    // 满足清理空间条件就退出
+      if (sumItemSizes > (deleteSize)) {
+        break;
+      }
+      // 根据前面文件时间戳排序，将长时间不用的文件清理掉
+      long deletedSize = mStorage.remove(entry);
+      mResourceIndex.remove(entry.getId());
+      if (deletedSize > 0) {
+        itemCount++;
+        // 累计已经清理的文件空间
+        sumItemSizes += deletedSize;
+      }
+    }
+    mCacheStats.increment(-sumItemSizes, -itemCount);
+    mStorage.purgeUnexpectedResources();
+  }
+```
+
+整体清理逻辑就是，先将磁盘中的缓存文件按照时间戳进行排序，然后计算需要清理掉多少空间，再逐步清理掉较长时间不用的磁盘文件，直到空间满足条件为止。
 
 
 
