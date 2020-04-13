@@ -432,7 +432,7 @@ void scheduleTraversals() {
     }
 ```
 
-调度Traversal时，为了优先处理UI绘制操作，在消息队列中加入了同步屏障，且Traversal对应的Message设置为异步消息。这块知识点可以参考：[Android 同步屏障机制(Sync Barrier)]([https://hningoba.github.io/2019/12/06/Android%20%E5%90%8C%E6%AD%A5%E5%B1%8F%E9%9A%9C%E6%9C%BA%E5%88%B6(Sync%20Barrier)/#more](https://hningoba.github.io/2019/12/06/Android 同步屏障机制(Sync Barrier)/#more))
+调度Traversal时，为了优先处理UI绘制操作，在消息队列中加入了同步屏障，且Traversal对应的Message设置为异步消息。这块知识点可以参考：[Android 同步屏障机制(Sync Barrier)](https://hningoba.github.io/2019/12/06/Android 同步屏障机制(Sync Barrier)/)
 
 mChoreographer.postCallback()会执行到下面方法：
 
@@ -454,7 +454,7 @@ private void postCallbackDelayedInternal(int callbackType,
     }
 ```
 
-上面得了流程会向底层调度Vsync信号。等下一个Vsync信号到来时，会执行doFrame()。进而在Choreographer.doCallbacks(Choreographer.CALLBACK_TRAVERSAL)中，从CallbackQueue中找到Traversal对应的CallbackRecord执行。
+上面的流程会向底层调度Vsync信号。等下一个Vsync信号到来时，会执行doFrame()。进而在Choreographer.doCallbacks(Choreographer.CALLBACK_TRAVERSAL)中，从CallbackQueue中找到Traversal对应的CallbackRecord执行。
 
 从下图可以看到Choreographer.doCallbacks(Choreographer.CALLBACK_TRAVERSAL)内部执行的是ViewRootImpl.TravasalRunnable。这一点上面也提到了。
 

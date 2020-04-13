@@ -736,6 +736,91 @@ AnalyseTask的逻辑和AnrTask类似，只是log中的部分内容不一样，�
 
 
 
+##### 如何获取应用启动流程的开始节点？
+
+思路是通过Hook的方式，具体代码在ActivityThreadHacker。应用启动时调用栈如下图：
+
+![matrix_ActivityThreadHacker_method_trace](matrix_ActivityThreadHacker_method_trace.png)
+
+从上图代码调用流程中可以看到，MatrixApplication.onCreate()调用AppMethodBeat.i()，进而执行ActivityThreadHacker.hackSysHandlerCallback()，在hackSysHandlerCallback()内部计算Application创建的开始/结束时间点、launch activity启动时间点等等。具体实现逻辑后面会逐个介绍。
+
+如果看demo中MatrixApplication代码就会发现，MatrixApplication.onCreate()中找不到AppMethodBeat.i()的调用。这个逻辑其实是通过ASM进行插桩实现的。具体代码执行逻辑在matrix-gradle-plugin的MethodTracer：
+
+```
+com.tencent.matrix.trace.MethodTracer.TraceClassAdapter
+
+@Override
+        protected void onMethodEnter() {
+            TraceMethod traceMethod = collectedMethodMap.get(methodName);
+            if (traceMethod != null) {
+                traceMethodCount.incrementAndGet();
+                mv.visitLdcInsn(traceMethod.id);
+                mv.visitMethodInsn(INVOKESTATIC, TraceBuildConstants.MATRIX_TRACE_CLASS, "i", "(I)V", false);
+            }
+        }
+```
+
+下面简单看下MethodTracer都执行了哪些操作，对ASM和gradle Transform不了解的同学可以看看我写的这两篇文章：[自定义Gradle插件介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/自定义Gradle插件介绍.md)、[ASM用法介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/ASM用法介绍.md)。
+
+##### MethodTracer
+
+
+
+
+
+##### Application初始化耗时
+
+其中，Application初始化耗时的获取方式是：
+
+```
+public static long getApplicationCost() {
+        return ActivityThreadHacker.sApplicationCreateEndTime - ActivityThreadHacker.sApplicationCreateBeginTime;
+    }
+```
+
+
+
+##### launch Activity启动时间
+
+ActivityThreadHacker中有个方法是获取launch activity的启动时间点：
+
+```
+public static long getLastLaunchActivityTime() {
+        return ActivityThreadHacker.sLastLaunchActivityTime;
+    }
+```
+
+那么，这个时间点是怎么获取的呢？如何判断一个Activity是launch Activity？看下面代码：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+private boolean isLaunchActivity(Message msg) {
+    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) {
+        if (msg.what == EXECUTE_TRANSACTION && msg.obj != null) {
+            try {
+                if (null == method) {
+                    Class clazz = Class.forName("android.app.servertransaction.ClientTransaction");
+                    method = clazz.getDeclaredMethod("getCallbacks");
+                    method.setAccessible(true);
+                }
+                List list = (List) method.invoke(msg.obj);
+                if (!list.isEmpty()) {
+                    return list.get(0).getClass().getName().endsWith(".LaunchActivityItem");
+                }
+            } catch (Exception e) {
+                MatrixLog.e(TAG, "[isLaunchActivity] %s", e);
+            }
+        }
+        return msg.what == LAUNCH_ACTIVITY;
+    } else {
+        return msg.what == LAUNCH_ACTIVITY;
+    }
+}
+```
+
+
+
 应用启动后会收到如下log：
 
 ```
@@ -744,7 +829,38 @@ sample.tencent.matrix I/Matrix.StartupTracer: [report] applicationCost:23 firstS
 
 
 
+字段解释：
 
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_StartupTracer_field_annotation.png" width="80%" />
+
+
+
+插桩结果：
+
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_TestTraceMainActivity_dex.png" />
+
+
+
+插桩代码：
+
+matrix-gradle-plugin : MethodTracer.insertWindowFocusChangeMethod()
+
+```
+ private void insertWindowFocusChangeMethod(ClassVisitor cv, String classname) {
+        MethodVisitor methodVisitor = cv.visitMethod(Opcodes.ACC_PUBLIC, TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD,
+                TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD_ARGS, null, null);
+        methodVisitor.visitCode();
+        methodVisitor.visitVarInsn(Opcodes.ALOAD, 0);
+        methodVisitor.visitVarInsn(Opcodes.ILOAD, 1);
+        methodVisitor.visitMethodInsn(Opcodes.INVOKESPECIAL, TraceBuildConstants.MATRIX_TRACE_ACTIVITY_CLASS, TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD,
+                TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD_ARGS, false);
+        traceWindowFocusChangeMethod(methodVisitor, classname);
+        methodVisitor.visitInsn(Opcodes.RETURN);
+        methodVisitor.visitMaxs(2, 2);
+        methodVisitor.visitEnd();
+
+    }
+```
 
 
 
