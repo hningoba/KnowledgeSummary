@@ -1,0 +1,788 @@
+### Android启动进程概述
+
+Android系统启动过程中，先由init进程通过解析init.rc文件fork生成Zygote进程，即孵化器进程，是Android系统的首个Java进程。之后Zygote进程负责孵化System Server进程和App进程。
+
+<img src="https://github.com/hningoba/KnowledgeSummary/blob/master/img/android_framework_app_start.png?raw=true" style="zoom: 50%;" />
+
+##### System Server进程：
+
+* System Server进程是Zygote孵化的第一个进程，属于Java Framework层
+* System Server进程负责启动、管理整个Java Framework，包含ActivityManager、WindowManager、PackageManager等服务
+
+##### App进程：
+
+* Zygote进程在App层中孵化出的第一个进程是Launcher进程，即手机的桌面App(桌面本身是一个App)。当用户点击手机桌面某个目标应用图标时，将由Launcher进程发起，通过binder发消息给System Server进程，然后System Server进程从Process.start()开始，为目标应用创建进程。
+* Zygote还会孵化出Browser、Email、Phone等App进程，每个App至少运行在一个进程上
+* 所有App进程都由Zygote进程fork生成
+
+
+
+### 应用启动流程
+
+当用户点击手机桌面某个目标应用图标时，将由Launcher进程发起，通过binder发消息给System Server进程，然后System Server进程从Process.start()开始，为目标应用创建进程。
+
+应用图标被点击时，执行如下代码：
+
+```
+android.app.LauncherActivity
+
+@Override
+    protected void onListItemClick(ListView l, View v, int position, long id) {
+        Intent intent = intentForPosition(position);
+        startActivity(intent);
+    }
+```
+
+后续代码流程如下：
+
+```
+LauncherActivity.onListItemClick
+Instrumentation.startActivity
+ActivityManagerService.startActivity
+ActivityManagerService.startActivityAsUser
+ActivityStarter.execute
+ActivityStarter.startActivityMayWait 	// ActivityManagerService.startActivityAsUser中setWait
+ActivityStarter.startActivity
+ActivityStarter.startActivityUnchecked // 此处处理Activity启动模式(4种)
+ActivityStackSupervisor.resumeFocusedStackTopActivityLocked
+ActivityStackSupervisor.resumeTopActivityUncheckedLocked
+ActivityStackSupervisor.resumeTopActivityInnerLocked
+```
+
+看下上面代码的最后一行：ActivityStackSupervisor.resumeTopActivityInnerLocked()具体实现逻辑：
+
+```
+com.android.server.am.ActivityStack
+
+private boolean resumeTopActivityInnerLocked(ActivityRecord prev, ActivityOptions options) {
+	// 有栈顶Activity处于Resume状态，先将其pause
+	boolean pausing = mStackSupervisor.pauseBackStacks(userLeaving, next, false);
+	 if (mResumedActivity != null) {
+            pausing |= startPausingLocked(userLeaving, false, next, false);
+        }
+	...
+	// 启动目标Activity
+	mStackSupervisor.startSpecificActivityLocked(next, true, true);
+        
+}
+```
+
+上面代码会去判断是否有栈顶Activity处于Resume状态，即``mResumedActivity != null``，如果有的话会，通过``startPausingLocked()``先让栈顶Activity执行Pause过程（具体参考本文《Pause栈顶Activity》部分），然后再执行``ActivityStackSupervisor.startSpecificActivityLocked()``：
+
+```
+com.android.server.am.ActivityStackSupervisor
+
+void startSpecificActivityLocked(ActivityRecord r,
+            boolean andResume, boolean checkConfig) {
+        // Is this activity's application already running?
+        ProcessRecord app = mService.getProcessRecordLocked(r.processName,
+                r.info.applicationInfo.uid, true);
+
+        getLaunchTimeTracker().setLaunchTime(r);
+        
+        // 分支1：如果已经开辟进程，则直接启动目标Activity
+        if (app != null && app.thread != null) {
+                ...
+                realStartActivityLocked(r, app, andResume, checkConfig);
+                return;
+        }
+
+        // 分支2：当前App还没启动过，先为APP创建进程
+        mService.startProcessLocked(r.processName, r.info.applicationInfo, true, 0,
+                "activity", r.intent.getComponent(), false, false, true);
+    }
+```
+
+上面代码中会去根据进程和线程是否存在判断App是否已经启动，如果已经启动，就会调用``ActivityManagerService.realStartActivityLocked``方法启动目标Activity。如果没有启动则调用``ActivityManagerService.startProcessLocked()``优先为待启动App创建进程。
+
+我们先看下AMS如何为APP创建进程。
+
+
+
+#### 创建应用进程
+
+上面``mService.startProcessLocked()``内部会执行一系列AMS的``startProcessLocked``重载方法。最终会调用``ActivityManagerService.startProcess()``：
+
+```
+com.android.server.am.ActivityManagerService
+
+private ProcessStartResult startProcess(String hostingType, String entryPoint,
+            ProcessRecord app, int uid, int[] gids, int runtimeFlags, int mountExternal,
+            String seInfo, String requiredAbi, String instructionSet, String invokeWith,
+            long startTime) {
+            ...
+                startResult = Process.start(entryPoint,
+                        app.processName, uid, uid, gids, runtimeFlags, mountExternal,
+                        app.info.targetSdkVersion, seInfo, requiredAbi, instructionSet,
+                        app.info.dataDir, invokeWith,
+                        new String[] {PROC_START_SEQ_IDENT + app.startSeq});
+            ...
+    }
+```
+
+``Process.start()``后续会依次执行``ZygoteProcess.start()``、``ZygoteProcess.startViaZygote()``，在``ZygoteProcess.startViaZygote()``内部为创建的目标进程设置参数：
+
+```
+android.os.ZygoteProcess
+
+private Process.ProcessStartResult startViaZygote(final String processClass,
+                                                      final String niceName,
+                                                      final int uid, final int gid,
+                                                      final int[] gids,
+                                                      int runtimeFlags, int mountExternal,
+                                                      int targetSdkVersion,
+                                                      String seInfo,
+                                                      String abi,
+                                                      String instructionSet,
+                                                      String appDataDir,
+                                                      String invokeWith,
+                                                      boolean startChildZygote,
+                                                      String[] extraArgs)
+                                                      throws ZygoteStartFailedEx {
+        ArrayList<String> argsForZygote = new ArrayList<String>();
+
+        // --runtime-args, --setuid=, --setgid=,
+        // and --setgroups= must go first
+        argsForZygote.add("--runtime-args");
+        argsForZygote.add("--setuid=" + uid);
+        argsForZygote.add("--setgid=" + gid);
+        argsForZygote.add("--runtime-flags=" + runtimeFlags);
+        if (mountExternal == Zygote.MOUNT_EXTERNAL_DEFAULT) {
+            argsForZygote.add("--mount-external-default");
+        } else if (mountExternal == Zygote.MOUNT_EXTERNAL_READ) {
+            argsForZygote.add("--mount-external-read");
+        } else if (mountExternal == Zygote.MOUNT_EXTERNAL_WRITE) {
+            argsForZygote.add("--mount-external-write");
+        }
+        argsForZygote.add("--target-sdk-version=" + targetSdkVersion);
+
+        // --setgroups is a comma-separated list
+        if (gids != null && gids.length > 0) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("--setgroups=");
+
+            int sz = gids.length;
+            for (int i = 0; i < sz; i++) {
+                if (i != 0) {
+                    sb.append(',');
+                }
+                sb.append(gids[i]);
+            }
+
+            argsForZygote.add(sb.toString());
+        }
+
+        if (niceName != null) {
+            argsForZygote.add("--nice-name=" + niceName);
+        }
+
+        if (seInfo != null) {
+            argsForZygote.add("--seinfo=" + seInfo);
+        }
+
+        if (instructionSet != null) {
+            argsForZygote.add("--instruction-set=" + instructionSet);
+        }
+
+        if (appDataDir != null) {
+            argsForZygote.add("--app-data-dir=" + appDataDir);
+        }
+
+        if (invokeWith != null) {
+            argsForZygote.add("--invoke-with");
+            argsForZygote.add(invokeWith);
+        }
+
+        if (startChildZygote) {
+            argsForZygote.add("--start-child-zygote");
+        }
+
+        argsForZygote.add(processClass);
+
+        if (extraArgs != null) {
+            for (String arg : extraArgs) {
+                argsForZygote.add(arg);
+            }
+        }
+
+        synchronized(mLock) {
+            return zygoteSendArgsAndGetResult(openZygoteSocketIfNeeded(abi), argsForZygote);
+        }
+    }
+```
+
+从上面可以看到，先配置一系列进程参数，追后执行``openZygoteSocketIfNeeded()``建立与Zygote进程的通信连接，再调用``zygoteSendArgsAndGetResult()``向zygote进程传递参数。看下如何建立和Zygote进程的通信连接：
+
+```
+android.os.ZygoteProcess
+
+private ZygoteState openZygoteSocketIfNeeded(String abi) throws ZygoteStartFailedEx {
+        Preconditions.checkState(Thread.holdsLock(mLock), "ZygoteProcess lock not held");
+
+        if (primaryZygoteState == null || primaryZygoteState.isClosed()) {
+            try {
+            	// 利用Socket建立和Zygote进程的通信
+                primaryZygoteState = ZygoteState.connect(mSocket);
+            } catch (IOException ioe) {
+                throw new ZygoteStartFailedEx("Error connecting to primary zygote", ioe);
+            }
+            maybeSetApiBlacklistExemptions(primaryZygoteState, false);
+            maybeSetHiddenApiAccessLogSampleRate(primaryZygoteState);
+        }
+        if (primaryZygoteState.matches(abi)) {
+            return primaryZygoteState;
+        }
+        ...
+    }
+```
+
+从上面代码就能看出，利用socket建立和Zygote进程的通信，后续再通过``ZygoteProgress.zygoteSendArgsAndGetResult()``将前面设置的创建进程的参数传递给Zygote进程，并根据传递的``android.app.ActivityThread``字符串，反射出该对象并执行ActivityThread的main方法对其进行初始化。
+
+Zygote进程在执行`ZygoteInit.main()`后便进入`runSelectLoop()`循环体内，当有客户端连接时即上面``openZygoteSocketIfNeeded()``这部分代码，便会执行ZygoteConnection.runOnce()方法，再经过层层调用后fork出新的应用进程。
+
+
+
+#### 初始化主线程
+
+上面提到，进程创建完后会执行``ActivityThread.main()``，看下这部分内容：
+
+```
+android.app.ActivityThread
+
+public static void main(String[] args) {
+        ...
+
+        // 初始化主线程Looper
+        Looper.prepareMainLooper();
+
+        ...
+        // 初始化Application和启动页Activity
+        ActivityThread thread = new ActivityThread();
+        thread.attach(false, startSeq);
+
+        if (sMainThreadHandler == null) {
+            sMainThreadHandler = thread.getHandler();
+        }
+        ...
+        // 启动消息轮询
+        Looper.loop();
+    }
+```
+
+从上面可以看到执行了Looper的prepare和loop方法，开启了主线程消息队列的轮询，做法和我们在子线程初始化Handler的逻辑是一样的。
+
+
+
+#### 初始化Application
+
+这里先列下整体的方法调用栈，对调用流程有个大致印象，后续逐个细节展开：
+
+```
+ActivityThread.main()
+ActivityThread.attach()
+ActivityManagerService.attachApplication()
+ActivityManagerService.attachApplicationLocked()
+ActivityStackSupervisor.attachApplicationLocked()
+ActivityStackSupervisor.realStartActivityLocked()
+ActivityThread.ApplicationThread.scheduleTransaction()
+ClientTransactionHandler.scheduleTransaction()
+ActivityThread.sendMessage()
+ActivityThread.H.handleMessage()
+TransactionExecutor.execute()
+LaunchActivityItem.execute()
+ActivityThread.handleLaunchActivity()
+ActivityThread.performLaunchActivity()
+```
+
+
+
+##### ActivityThread：
+
+前面讲主线程初始化时，在代码``ActivityThread.attach()``的注释中提到内部会初始化Application和启动页Activity（AndroidManifest配置了LAUNCHER category的Activity），看下这部分逻辑：
+
+```
+android.app.ActivityThread
+
+private void attach(boolean system, long startSeq) {
+        sCurrentActivityThread = this;
+        mSystemThread = system;
+        if (!system) {
+            ViewRootImpl.addFirstDrawHandler(new Runnable() {
+                @Override
+                public void run() {
+                    ensureJitEnabled();
+                }
+            });
+            android.ddm.DdmHandleAppName.setAppName("<pre-initialized>",
+                                                    UserHandle.myUserId());
+            RuntimeInit.setApplicationObject(mAppThread.asBinder());
+            
+            // 利用ActivityManagerService创建Application
+            final IActivityManager mgr = ActivityManager.getService();
+            try {
+                // 注意，这里将ApplicationThread的实例传递进去作为ProcessRecord.thread
+                mgr.attachApplication(mAppThread, startSeq);
+            } catch (RemoteException ex) {
+                throw ex.rethrowFromSystemServer();
+            }
+            
+            // 添加GC监听器，系统触发GC时，占用内容量超过进程总量3/4时尝试进行内存释放
+            // Watch for getting close to heap limit.
+            BinderInternal.addGcWatcher(new Runnable() {
+                @Override public void run() {
+                    Runtime runtime = Runtime.getRuntime();
+                    long dalvikMax = runtime.maxMemory();
+                    long dalvikUsed = runtime.totalMemory() - runtime.freeMemory();
+                    if (dalvikUsed > ((3*dalvikMax)/4)) {
+                        mSomeActivitiesChanged = false;
+                        try {
+                            mgr.releaseSomeActivities(mAppThread);
+                        } catch (RemoteException e) {
+                            throw e.rethrowFromSystemServer();
+                        }
+                    }
+                }
+            });
+        }
+        ...
+
+        // 为ViewRootImpl添加Config回调
+        ViewRootImpl.ConfigChangedCallback configChangedCallback
+                = (Configuration globalConfig) -> {
+            synchronized (mResourcesManager) {
+                // We need to apply this change to the resources immediately, because upon returning
+                // the view hierarchy will be informed about it.
+                if (mResourcesManager.applyConfigurationToResourcesLocked(globalConfig,
+                        null /* compat */)) {
+                    updateLocaleListFromAppContext(mInitialApplication.getApplicationContext(),
+                            mResourcesManager.getConfiguration().getLocales());
+
+                    // This actually changed the resources! Tell everyone about it.
+                    if (mPendingConfiguration == null
+                            || mPendingConfiguration.isOtherSeqNewer(globalConfig)) {
+                        mPendingConfiguration = globalConfig;
+                        sendMessage(H.CONFIGURATION_CHANGED, globalConfig);
+                    }
+                }
+            }
+        };
+        ViewRootImpl.addConfigCallback(configChangedCallback);
+    }
+```
+
+上面``ActivityThread.attach()``主要做了三件事：
+
+* 在AMS中创建Application，具体实现在``ActivityManagerService.attachApplication()``
+* 添加GC监听器，系统触发GC时，占用内容量超过进程总量3/4时尝试进行内存释放
+* 为ViewRootImpl，即跟View添加Config回调
+
+
+
+##### AMS：
+
+重点看下``ActivityThread.attach()``中第一件事``ActivityManagerService.attachApplication()``的实现逻辑：
+
+```
+com.android.server.am.ActivityManagerService
+
+ @Override
+    public final void attachApplication(IApplicationThread thread, long startSeq) {
+        synchronized (this) {
+            int callingPid = Binder.getCallingPid();
+            final int callingUid = Binder.getCallingUid();
+            final long origId = Binder.clearCallingIdentity();
+            attachApplicationLocked(thread, callingPid, callingUid, startSeq);
+            Binder.restoreCallingIdentity(origId);
+        }
+    }
+```
+
+看下上面代码``attachApplicationLocked()``的实现：
+
+```
+com.android.server.am.ActivityManagerService
+
+private final boolean attachApplicationLocked(IApplicationThread thread,
+            int pid, int callingUid, long startSeq) {
+        ...
+
+        // See if the top visible activity is waiting to run in this process...
+        if (normalMode) {
+            try {
+                if (mStackSupervisor.attachApplicationLocked(app)) {
+                    didSomething = true;
+                }
+            } catch (Exception e) {
+                Slog.wtf(TAG, "Exception thrown launching activities in " + app, e);
+                badApp = true;
+            }
+        }
+        ...
+        return true;
+    }
+```
+
+##### ActivityStackSupervisor：
+
+上面代码执行了``mStackSupervisor.attachApplicationLocked()``：
+
+```
+com.android.server.am.ActivityStackSupervisor
+
+boolean attachApplicationLocked(ProcessRecord app) throws RemoteException {
+        final String processName = app.processName;
+        boolean didSomething = false;
+        for (int displayNdx = mActivityDisplays.size() - 1; displayNdx >= 0; --displayNdx) {
+            final ActivityDisplay display = mActivityDisplays.valueAt(displayNdx);
+            for (int stackNdx = display.getChildCount() - 1; stackNdx >= 0; --stackNdx) {
+                final ActivityStack stack = display.getChildAt(stackNdx);
+                if (!isFocusedStack(stack)) {
+                    continue;
+                }
+                stack.getAllRunningVisibleActivitiesLocked(mTmpActivityList);
+                final ActivityRecord top = stack.topRunningActivityLocked();
+                final int size = mTmpActivityList.size();
+                for (int i = 0; i < size; i++) {
+                    final ActivityRecord activity = mTmpActivityList.get(i);
+                    if (activity.app == null && app.uid == activity.info.applicationInfo.uid
+                            && processName.equals(activity.processName)) {
+                        try {
+                            if (realStartActivityLocked(activity, app,
+                                    top == activity /* andResume */, true /* checkConfig */)) {
+                                didSomething = true;
+                            }
+                        }
+                        ...
+                    }
+                }
+            }
+        }
+        if (!didSomething) {
+            ensureActivitiesVisibleLocked(null, 0, !PRESERVE_WINDOWS);
+        }
+        return didSomething;
+    }
+```
+
+看下上面代码中``ActivityStackSupervisor.realStartActivityLocked()``的逻辑：
+
+```
+com.android.server.am.ActivityStackSupervisor
+
+final boolean realStartActivityLocked(ActivityRecord r, ProcessRecord app,
+            boolean andResume, boolean checkConfig) throws RemoteException {
+
+        ...
+
+                // 为ClientTransaction添加LaunchActivityItem回调
+                // Create activity launch transaction.
+                final ClientTransaction clientTransaction = ClientTransaction.obtain(app.thread,
+                        r.appToken);
+                        
+                clientTransaction.addCallback(LaunchActivityItem.obtain(new Intent(r.intent),
+                        System.identityHashCode(r), r.info,
+                        mergedConfiguration.getGlobalConfiguration(),
+                        mergedConfiguration.getOverrideConfiguration(), r.compat,
+                        r.launchedFromPackage, task.voiceInteractor, app.repProcState, r.icicle,
+                        r.persistentState, results, newIntents, mService.isNextTransitionForward(),
+                        profilerInfo));
+
+                // Set desired final state.
+                final ActivityLifecycleItem lifecycleItem;
+                if (andResume) {
+                    lifecycleItem = ResumeActivityItem.obtain(mService.isNextTransitionForward());
+                } else {
+                    lifecycleItem = PauseActivityItem.obtain();
+                }
+                clientTransaction.setLifecycleStateRequest(lifecycleItem);
+
+                // 执行transaction逻辑
+                mService.getLifecycleManager().scheduleTransaction(clientTransaction);
+                ...
+            } catch (RemoteException e) {
+                ...
+            }
+        } finally {
+            endDeferResume();
+        }
+        ...
+
+        return true;
+    }
+```
+
+上面代码中为ClientTransaction对象添加callback，即LaunchActivityItem。然后设置当前的生命周期状态，最后调用``ClientLifecycleManager.scheduleTransaction()``执行。
+
+后续执行流程如下：
+
+```
+ClientLifecycleManager.scheduleTransaction()
+ClientTransaction.schedule()	// 方法内mClient对象的实现类是ActivityThread.ApplicationThread，可以在ActivityStackSupervisor.realStartActivityLocked()中看到这部分逻辑
+```
+
+上面``ClientTransaction.schedule()``调用了mClient的scheduleTransaction()：
+
+```
+ public void schedule() throws RemoteException {
+        mClient.scheduleTransaction(this);
+}
+```
+
+如何调度ClientTransaction后面会讲到。
+
+这里先提下，上面代码中的mClient实现类是ActivityThread.ApplicationThread。细节就不展开了，从ActivityThread.main()开始，即《初始化主线程》的开头部分讲到的，跟下下面代码流程就可以知道这个内容：
+
+```
+ActivityThread.main()
+ActivityThread.attach()
+ActivityManagerService.attachApplication(mAppThread, startSeq) // mAppThread就是ActivityThread.ApplicationThread的实例，也是我们要跟的mClient
+
+ActivityManagerService.attachApplicationLocked() // 这里构造ProcessRecord对象，并将其thread field赋值为mAppThread
+
+ActivityStackSupervisor.attachApplicationLocked(ProcessRecord app) // app.thread即mAppThread
+ActivityStackSupervisor.realStartActivityLocked()
+ClientTransaction.obtain(app.thread, r.appToken) // 这里创建ClientTransaction实例，并将ClientTransaction.mClient赋值为入参app.thread，即ActivityThread.ApplicationThread
+```
+
+
+
+##### ClientTransaction：
+
+继上面接着讲``ClientTransaction.schedule()``，内部执行``mClient.scheduleTransaction(this);``。因为mClient实现类是ActivityThread.ApplicationThread，那看下``ActivityThread.ApplicationThread.scheduleTransaction()``。内部实现比较简单，主要是执行了下面的代码调用：
+
+```
+ActivityThread.ApplicationThread.scheduleTransaction()
+ClientTransactionHandler.scheduleTransaction()
+ActivityThread.sendMessage()	// 使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
+ActivityThread.H.handleMessage()	// H接收消息，其中msg.what == EXECUTE_TRANSACTION
+```
+
+
+
+##### ActivityThread.mH：
+
+ActivityThread.mH接收到EXECUTE_TRANSACTION消息后调用TransactionExecutor.execute方法，代码如下：
+
+```
+android.app.ActivityThread.H
+
+public void handleMessage(Message msg) {
+	 case EXECUTE_TRANSACTION:
+     final ClientTransaction transaction = (ClientTransaction) msg.obj;
+     mTransactionExecutor.execute(transaction);
+}
+```
+
+在``mTransactionExecutor.execute()``内部会执行ClientTransaction中的Callback回调方法``execute()``。这里的Callback就是LaunchActivityItem。
+
+
+
+##### LaunchActivityItem：
+
+看下LaunchActivityItem的``execute()``的逻辑：
+
+```
+android.app.servertransaction.LaunchActivityItem
+
+@Override
+    public void execute(ClientTransactionHandler client, IBinder token,
+            PendingTransactionActions pendingActions) {
+
+        ActivityClientRecord r = new ActivityClientRecord(token, mIntent, mIdent, mInfo,
+                mOverrideConfig, mCompatInfo, mReferrer, mVoiceInteractor, mState, mPersistentState,
+                mPendingResults, mPendingNewIntents, mIsForward,
+                mProfilerInfo, client);
+        // 启动Launch Activity，其中client实现类是ActivityThread
+        client.handleLaunchActivity(r, pendingActions, null /* customIntent */);
+    }
+```
+
+
+
+##### ActivityThread.performLaunchActivity()
+
+上面代码中，client的实现类是``ActivityThread``，``ActivityThread.handleLaunchActivity()``的主要实现逻辑在``ActivityThread.performLaunchActivity()``：
+
+```
+android.app.ActivityThread
+
+private Activity performLaunchActivity(ActivityClientRecord r, Intent customIntent) {
+        ActivityInfo aInfo = r.activityInfo;
+        if (r.packageInfo == null) {
+            r.packageInfo = getPackageInfo(aInfo.applicationInfo, r.compatInfo,
+                    Context.CONTEXT_INCLUDE_CODE);
+        }
+
+        // 通过Intent解析Component
+        ComponentName component = r.intent.getComponent();
+        if (component == null) {
+            component = r.intent.resolveActivity(
+                mInitialApplication.getPackageManager());
+            r.intent.setComponent(component);
+        }
+
+        if (r.activityInfo.targetActivity != null) {
+            component = new ComponentName(r.activityInfo.packageName,
+                    r.activityInfo.targetActivity);
+        }
+
+        // 创建Context
+        ContextImpl appContext = createBaseContextForActivity(r);
+        Activity activity = null;
+        try {
+        	// 利用Instrument实例化目标Activity
+            java.lang.ClassLoader cl = appContext.getClassLoader();
+            activity = mInstrumentation.newActivity(
+                    cl, component.getClassName(), r.intent);
+            StrictMode.incrementExpectedActivityCount(activity.getClass());
+            r.intent.setExtrasClassLoader(cl);
+            r.intent.prepareToEnterProcess();
+            if (r.state != null) {
+                r.state.setClassLoader(cl);
+            }
+        } ...
+
+        try {
+            // 初始化Application和Context，并将Context attach到Application。内部会执行我们非常熟悉的Application的attachBaseContext()、onCreate()
+            Application app = r.packageInfo.makeApplication(false, mInstrumentation);
+
+            ...
+            if (activity != null) {
+                ...
+
+                // Activity初始化，包括创建Window、绑定mApplication/mIntent等
+                activity.attach(appContext, this, getInstrumentation(), r.token,
+                        r.ident, app, r.intent, r.activityInfo, title, r.parent,
+                        r.embeddedID, r.lastNonConfigurationInstances, config,
+                        r.referrer, r.voiceInteractor, window, r.configCallback);
+
+                ...
+                
+                // 给Activity设置主题
+                int theme = r.activityInfo.getThemeResource();
+                if (theme != 0) {
+                    activity.setTheme(theme);
+                }
+
+                // 调用Activity.onCreate()、Fragments.onCreate()生命周期方法
+                if (r.isPersistable()) {
+                    mInstrumentation.callActivityOnCreate(activity, r.state, r.persistentState);
+                } else {
+                    mInstrumentation.callActivityOnCreate(activity, r.state);
+                }
+                ...
+            }
+            
+        }
+        ...
+
+        return activity;
+    }
+```
+
+上面这段代码主要做Application、Activity、Context的初始化，建立三者之间的关系，执行Activity、Fragment的onCreate生命周期方法：
+
+* 通过Intent解析Component，为实例化目标Activity做准备
+* 利用Instrument实例化目标Activity
+* 初始化Application和Context，并将Context attach到Application。内部会执行Application的attachBaseContext()、onCreate()
+* 将前面实例化的Activity对象进行相关初始化工作，包括创建Window、绑定mApplication/mIntent等
+* 给Activity设置主题
+* 调用Activity.onCreate()，如果Activity中有Fragment，则执行Fragment.onCreate()
+
+
+
+#### Pause栈顶Activity：
+
+此处分开两段，先看一下栈顶Activity是如何退出的。在ActivityStack.resumeTopActivityInnerLocked()中，如果是栈顶Activity退出，会执行ActivityStack.startPausingLocked()。
+
+```
+com.android.server.am.ActivityStack
+
+ final boolean startPausingLocked(boolean userLeaving, boolean uiSleeping,
+            ActivityRecord resuming, boolean pauseImmediately) {
+        ...
+        
+        if (prev.app != null && prev.app.thread != null) {
+        	...
+        	// 通过ClientLifecycleManager.scheduleTransaction将PauseActivityItem加入任务队列
+                mService.getLifecycleManager().scheduleTransaction(prev.app.thread, prev.appToken,
+                        PauseActivityItem.obtain(prev.finishing, userLeaving,
+                                prev.configChangeFlags, pauseImmediately));
+            } catch (Exception e) {
+                ...
+            }
+        }
+        ...
+    }
+```
+
+Android 9.0引入ClientLifecycleManager和ClientTransactionHandler来辅助管理Activity生命周期。
+
+后续执行流程：
+
+```
+ClientLifecycleManager.scheduleTransaction
+ClientTransaction.schedule	// 方法内mClient对象的实现是ActivityThread.ApplicationThread
+ActivityThread.ApplicationThread.scheduleTransaction
+ClientTransactionHandler.scheduleTransaction
+ActivityThread.sendMessage	// 使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
+ActivityThread.H.handleMessage	// H接收消息，其中msg.what == EXECUTE_TRANSACTION
+```
+
+Handler H的实例接收到EXECUTE_TRANSACTION消息后调用TransactionExecutor.execute方法切换Activity状态，代码如下：
+
+```
+android.app.ActivityThread.H
+
+public void handleMessage(Message msg) {
+	 case EXECUTE_TRANSACTION:
+     final ClientTransaction transaction = (ClientTransaction) msg.obj;
+     mTransactionExecutor.execute(transaction);
+}
+```
+
+后续执行：
+
+```
+TransactionExecutor.execute
+TransactionExecutor.executeLifecycleState
+PauseActivityItem.execute
+ClientTransactionHandler.handlePauseActivity	// 抽象方法，由子类ActivityThread实现
+```
+
+看下ActivityThread执行pause Activity的操作：
+
+```
+android.app.ActivityThread
+
+@Override
+    public void handlePauseActivity(IBinder token, boolean finished, boolean userLeaving,
+            int configChanges, PendingTransactionActions pendingActions, String reason) {
+        ActivityClientRecord r = mActivities.get(token);
+        if (r != null) {
+            ...
+
+            r.activity.mConfigChangeFlags |= configChanges;
+            performPauseActivity(r, finished, reason, pendingActions);
+
+            // Make sure any pending writes are now committed.
+            if (r.isPreHoneycomb()) {
+                QueuedWork.waitToFinish();
+            }
+            mSomeActivitiesChanged = true;
+        }
+    }
+```
+
+后续执行：
+
+```
+ActivityThread.performPauseActivity
+ActivityThread.performPauseActivityIfNeeded
+Instrumentation.callActivityOnPause
+Activity.performPause
+Activity.onPause
+```
+
+可以看到，最终将执行我们非常熟悉的Activity生命周期方法Activity.onPause()。
+
