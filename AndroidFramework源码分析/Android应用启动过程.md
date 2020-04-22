@@ -21,32 +21,74 @@ Android系统启动过程中，先由init进程通过解析init.rc文件fork生�
 
 当用户点击手机桌面某个目标应用图标时，将由Launcher进程发起，通过binder发消息给System Server进程，然后System Server进程从Process.start()开始，为目标应用创建进程。
 
-应用图标被点击时，执行如下代码：
+各家厂商一般会定制Launcher，在Android 9.0中，我们以Android默认启动页为例，即launcher3/Launcher.java跟踪代码。当应用图标被点击时，由桌面程序Launcher响应，首先执行``ItemClickHandler.onClick()``：
 
 ```
-android.app.LauncherActivity
+com.android.launcher3.touch.ItemClickHandler
 
-@Override
-    protected void onListItemClick(ListView l, View v, int position, long id) {
-        Intent intent = intentForPosition(position);
-        startActivity(intent);
+/**
+ * Class for handling clicks on workspace and all-apps items
+ */
+public class ItemClickHandler {
+
+    ...
+    // step1. 响应桌面Icon点击事件
+    private static void onClick(View v) {
+        ...
+        Launcher launcher = Launcher.getLauncher(v.getContext());
+        ...
+
+        Object tag = v.getTag();
+        if (tag instanceof ShortcutInfo) {
+            // step2. 处理点击事件
+            onClickAppShortcut(v, (ShortcutInfo) tag, launcher);
+        }
+        ...
+    }
+    
+    /**
+     * Event handler for an app shortcut click.
+     *
+     * @param v The view that was clicked. Must be a tagged with a {@link ShortcutInfo}.
+     */
+    private static void onClickAppShortcut(View v, ShortcutInfo shortcut, Launcher launcher) {
+        ...
+
+        // step3. 处理点击事件，准备启动应用
+        // Start activities
+        startAppShortcutOrInfoActivity(v, shortcut, launcher);
+    }
+    
+    private static void startAppShortcutOrInfoActivity(View v, ItemInfo item, Launcher launcher) {
+        ...
+        // step4. 交由Launcher处理，启动应用
+        launcher.startActivitySafely(v, intent, item);
     }
 ```
 
-后续代码流程如下：
+ItemClickHandler响应点击事件后，交给Launcher处理，最终通过``Activity.startActivity()``启动目标应用，后续调用流程如下：
 
 ```
-LauncherActivity.onListItemClick
-Instrumentation.startActivity
-ActivityManagerService.startActivity
-ActivityManagerService.startActivityAsUser
-ActivityStarter.execute
-ActivityStarter.startActivityMayWait 	// ActivityManagerService.startActivityAsUser中setWait
-ActivityStarter.startActivity
-ActivityStarter.startActivityUnchecked // 此处处理Activity启动模式(4种)
-ActivityStackSupervisor.resumeFocusedStackTopActivityLocked
-ActivityStackSupervisor.resumeTopActivityUncheckedLocked
-ActivityStackSupervisor.resumeTopActivityInnerLocked
+
+
+```
+
+
+
+```
+- Activity.startActivity()
+- Activity.startActivityForResult()
+- Instrumentation.execStartActivity()
+- ActivityManagerService.startActivity()	// 跨进程交由AMS处理启动目标进程
+- ActivityManagerService.startActivityAsUser()
+- ActivityStarter.execute()
+- ActivityStarter.startActivityMayWait() 	// ActivityManagerService.startActivityAsUser()中执行了setWait()，所以此处if分支执行startActivityMayWait()
+
+- ActivityStarter.startActivity() // 此处经历多个startActivity重载方法调用
+- ActivityStarter.startActivityUnchecked() // 此处处理Activity启动模式(4种)
+- ActivityStackSupervisor.resumeFocusedStackTopActivityLocked() //几种启动模式最终都执行该方法
+- ActivityStack.resumeTopActivityUncheckedLocked()
+- ActivityStack.resumeTopActivityInnerLocked()
 ```
 
 看下上面代码的最后一行：ActivityStackSupervisor.resumeTopActivityInnerLocked()具体实现逻辑：
@@ -67,7 +109,7 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, ActivityOption
 }
 ```
 
-上面代码会去判断是否有栈顶Activity处于Resume状态，即``mResumedActivity != null``，如果有的话会，通过``startPausingLocked()``先让栈顶Activity执行Pause过程（具体参考本文《Pause栈顶Activity》部分），然后再执行``ActivityStackSupervisor.startSpecificActivityLocked()``：
+上面代码会去判断是否有栈顶Activity处于Resume状态，即``mResumedActivity != null``，如果有的话会，通过``startPausingLocked()``先让栈顶Activity执行Pause过程，然后再执行``ActivityStackSupervisor.startSpecificActivityLocked()``启动目标Activity。因为是冷启动，内部会先创建应用进程，再启动launch activity。看下``startSpecificActivityLocked()``逻辑：
 
 ```
 com.android.server.am.ActivityStackSupervisor
@@ -93,9 +135,13 @@ void startSpecificActivityLocked(ActivityRecord r,
     }
 ```
 
-上面代码中会去根据进程和线程是否存在判断App是否已经启动，如果已经启动，就会调用``ActivityManagerService.realStartActivityLocked``方法启动目标Activity。如果没有启动则调用``ActivityManagerService.startProcessLocked()``优先为待启动App创建进程。
+上面代码中会去根据进程和线程是否存在判断App是否已经启动，如果已经启动，就会调用``ActivityManagerService.realStartActivityLocked()``方法启动目标Activity。如果没有启动则调用``ActivityManagerService.startProcessLocked()``优先为待启动App创建进程。
 
-我们先看下AMS如何为APP创建进程。
+下面我们看下AMS如何为APP创建进程。
+
+
+
+2020.4.22晚，AMS执行在SystemServer进程么？
 
 
 
@@ -141,48 +187,13 @@ private Process.ProcessStartResult startViaZygote(final String processClass,
                                                       throws ZygoteStartFailedEx {
         ArrayList<String> argsForZygote = new ArrayList<String>();
 
-        // --runtime-args, --setuid=, --setgid=,
-        // and --setgroups= must go first
         argsForZygote.add("--runtime-args");
         argsForZygote.add("--setuid=" + uid);
         argsForZygote.add("--setgid=" + gid);
         argsForZygote.add("--runtime-flags=" + runtimeFlags);
-        if (mountExternal == Zygote.MOUNT_EXTERNAL_DEFAULT) {
-            argsForZygote.add("--mount-external-default");
-        } else if (mountExternal == Zygote.MOUNT_EXTERNAL_READ) {
-            argsForZygote.add("--mount-external-read");
-        } else if (mountExternal == Zygote.MOUNT_EXTERNAL_WRITE) {
-            argsForZygote.add("--mount-external-write");
-        }
+        ...
         argsForZygote.add("--target-sdk-version=" + targetSdkVersion);
-
-        // --setgroups is a comma-separated list
-        if (gids != null && gids.length > 0) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("--setgroups=");
-
-            int sz = gids.length;
-            for (int i = 0; i < sz; i++) {
-                if (i != 0) {
-                    sb.append(',');
-                }
-                sb.append(gids[i]);
-            }
-
-            argsForZygote.add(sb.toString());
-        }
-
-        if (niceName != null) {
-            argsForZygote.add("--nice-name=" + niceName);
-        }
-
-        if (seInfo != null) {
-            argsForZygote.add("--seinfo=" + seInfo);
-        }
-
-        if (instructionSet != null) {
-            argsForZygote.add("--instruction-set=" + instructionSet);
-        }
+        ...
 
         if (appDataDir != null) {
             argsForZygote.add("--app-data-dir=" + appDataDir);
