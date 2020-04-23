@@ -69,13 +69,6 @@ public class ItemClickHandler {
 ItemClickHandler响应点击事件后，交给Launcher处理，最终通过``Activity.startActivity()``启动目标应用，后续调用流程如下：
 
 ```
-
-
-```
-
-
-
-```
 - Activity.startActivity()
 - Activity.startActivityForResult()
 - Instrumentation.execStartActivity()
@@ -146,6 +139,13 @@ void startSpecificActivityLocked(ActivityRecord r,
 
 
 #### 创建应用进程
+
+创建应用进程主要分两块工作：
+
+* system server进程中，从AMS.startProcess()开始，先配置新建进程参数，然后通过socket建立与zygote进程的连接，将参数列表写给zygote进程，等待zygote进程fork新的进程，返回pid
+* zygote进程被system server进程的socket连接请求唤醒
+
+##### system server发起请求
 
 上面``mService.startProcessLocked()``内部会执行一系列AMS的``startProcessLocked``重载方法。最终会调用``ActivityManagerService.startProcess()``：
 
@@ -222,13 +222,14 @@ private Process.ProcessStartResult startViaZygote(final String processClass,
     }
 ```
 
-从上面可以看到，先配置一系列进程参数，追后执行``openZygoteSocketIfNeeded()``建立与Zygote进程的通信连接，再调用``zygoteSendArgsAndGetResult()``向zygote进程传递参数。看下如何建立和Zygote进程的通信连接：
+从上面可以看到，先配置一系列进程参数，之后执行``openZygoteSocketIfNeeded()``建立与Zygote进程的通信连接，再调用``zygoteSendArgsAndGetResult()``向zygote进程传递参数。
+
+看下如何建立和Zygote进程的通信连接：
 
 ```
 android.os.ZygoteProcess
 
 private ZygoteState openZygoteSocketIfNeeded(String abi) throws ZygoteStartFailedEx {
-        Preconditions.checkState(Thread.holdsLock(mLock), "ZygoteProcess lock not held");
 
         if (primaryZygoteState == null || primaryZygoteState.isClosed()) {
             try {
@@ -240,6 +241,7 @@ private ZygoteState openZygoteSocketIfNeeded(String abi) throws ZygoteStartFaile
             maybeSetApiBlacklistExemptions(primaryZygoteState, false);
             maybeSetHiddenApiAccessLogSampleRate(primaryZygoteState);
         }
+        //根据abi决定使用zygote还是zygote64进行通信
         if (primaryZygoteState.matches(abi)) {
             return primaryZygoteState;
         }
@@ -247,9 +249,279 @@ private ZygoteState openZygoteSocketIfNeeded(String abi) throws ZygoteStartFaile
     }
 ```
 
-从上面代码就能看出，利用socket建立和Zygote进程的通信，后续再通过``ZygoteProgress.zygoteSendArgsAndGetResult()``将前面设置的创建进程的参数传递给Zygote进程，并根据传递的``android.app.ActivityThread``字符串，反射出该对象并执行ActivityThread的main方法对其进行初始化。
+从上面代码主要描述SystemServer进程利用socket建立和Zygote进程的通信，具体可以看一下``ZygoteState.connect()``的逻辑：
 
-Zygote进程在执行`ZygoteInit.main()`后便进入`runSelectLoop()`循环体内，当有客户端连接时即上面``openZygoteSocketIfNeeded()``这部分代码，便会执行ZygoteConnection.runOnce()方法，再经过层层调用后fork出新的应用进程。
+```
+android.os.ZygoteProcess.ZygoteState
+
+public static ZygoteState connect(LocalSocketAddress address) throws IOException {
+            DataInputStream zygoteInputStream = null;
+            BufferedWriter zygoteWriter = null;
+            final LocalSocket zygoteSocket = new LocalSocket();
+
+            try {
+                // 内部使用LocalSocketImpl，建立与zygote进程的Socket连接
+                zygoteSocket.connect(address);
+
+                // 获取socket输入流，用来读取zygote进程数据
+                zygoteInputStream = new DataInputStream(zygoteSocket.getInputStream());
+
+                // 获取socket输出流，用来将新建进程的参数传递给zygote进程
+                zygoteWriter = new BufferedWriter(new OutputStreamWriter(
+                        zygoteSocket.getOutputStream()), 256);
+            } catch (IOException ex) {
+                ...
+            }
+            ...
+            return new ZygoteState(zygoteSocket, zygoteInputStream, zygoteWriter,
+                    Arrays.asList(abiListString.split(",")));
+        }
+```
+
+connect()操作主要获取socket的输入流、输出流，封装到ZygoteState中，交给``zygoteSendArgsAndGetResult()``使用。看下``zygoteSendArgsAndGetResult()``：
+
+```
+android.os.ZygoteProcess
+
+private static Process.ProcessStartResult zygoteSendArgsAndGetResult(
+            ZygoteState zygoteState, ArrayList<String> args)
+            throws ZygoteStartFailedEx {
+        try {
+            ...
+
+            /**
+             * See com.android.internal.os.SystemZygoteInit.readArgumentList()
+             * Presently the wire format to the zygote process is:
+             * a) a count of arguments (argc, in essence)
+             * b) a number of newline-separated argument strings equal to count
+             *
+             * After the zygote process reads these it will write the pid of
+             * the child or -1 on failure, followed by boolean to
+             * indicate whether a wrapper process was used.
+             */
+             // 向zygote进程写数据
+            final BufferedWriter writer = zygoteState.writer;
+            final DataInputStream inputStream = zygoteState.inputStream;
+
+            writer.write(Integer.toString(args.size()));
+            writer.newLine();
+
+            for (int i = 0; i < sz; i++) {
+                String arg = args.get(i);
+                writer.write(arg);
+                writer.newLine();
+            }
+
+            writer.flush();
+
+            // Should there be a timeout on this?
+            Process.ProcessStartResult result = new Process.ProcessStartResult();
+
+            // 此处阻塞，直到zygote进程fork出新的进程、返回pid
+            result.pid = inputStream.readInt();
+            result.usingWrapper = inputStream.readBoolean();
+
+            if (result.pid < 0) {
+                throw new ZygoteStartFailedEx("fork() failed");
+            }
+            return result;
+        } ...
+    }
+```
+
+上面代码将前面设置的创建进程的参数写给Zygote进程，然后阻塞，直到zygote进程fork出新的进程，并返回新进程的pid。
+
+下面看看zygote进程如何fork新的进程。
+
+##### zygote创建app进程
+
+zygote进程由init进程通过解析init.rc文件fork生成，zygote进程启动后会执行``ZygoteInit.main()``。
+
+```
+com.android.internal.os.ZygoteInit
+
+public static void main(String argv[]) {
+        ZygoteServer zygoteServer = new ZygoteServer();
+
+        ...
+        try {
+            ...
+
+            // The select loop returns early in the child process after a fork and
+            // loops forever in the zygote.
+            caller = zygoteServer.runSelectLoop(abiList);
+        } ...
+    }
+```
+
+看下``zygoteServer.runSelectLoop()``：
+
+```
+com.android.internal.os.ZygoteServer
+
+/**
+     * Runs the zygote process's select loop. Accepts new connections as
+     * they happen, and reads commands from connections one spawn-request's
+     * worth at a time.
+     */
+    Runnable runSelectLoop(String abiList) {
+        ArrayList<FileDescriptor> fds = new ArrayList<FileDescriptor>();
+        ArrayList<ZygoteConnection> peers = new ArrayList<ZygoteConnection>();
+
+        // mServerSocket是socket通信的server端，即zygote进程
+        fds.add(mServerSocket.getFileDescriptor());
+        peers.add(null);
+
+        while (true) {
+            StructPollfd[] pollFds = new StructPollfd[fds.size()];
+            for (int i = 0; i < pollFds.length; ++i) {
+                pollFds[i] = new StructPollfd();
+                pollFds[i].fd = fds.get(i);
+                pollFds[i].events = (short) POLLIN;
+            }
+            try {
+                // 不断轮询，当有新的pollFds到来时，往下执行，否则在这里阻塞
+                // poll()官方解释：wait for some event on a file descriptor
+                Os.poll(pollFds, -1);
+            } ...
+            
+            for (int i = pollFds.length - 1; i >= 0; --i) {
+                if ((pollFds[i].revents & POLLIN) == 0) {
+                    continue;
+                }
+
+                if (i == 0) {
+                    // pollFds[0]就是mServerSocket，有客户端socket连接时执行下面方法
+                    ZygoteConnection newPeer = acceptCommandPeer(abiList);
+                    peers.add(newPeer);
+                    fds.add(newPeer.getFileDesciptor());
+                } else {
+                    try {
+                        ZygoteConnection connection = peers.get(i);
+                        final Runnable command = connection.processOneCommand(this);
+
+                        ...
+                    } ...
+                }
+            }
+        }
+    }
+```
+
+上面方法的内容系统注释也说的比较清楚，zygote进程会进入loop循环等待来自客户端socket的连接，即前面讲到system server进程通过socket发起与zygote进程的连接。
+
+zygote进程收到socket连接后，执行``acceptCommandPeer()``创建ZygoteConnection：
+
+```
+private ZygoteConnection acceptCommandPeer(String abiList) {
+        try {
+            return createNewConnection(mServerSocket.accept(), abiList);
+        } catch (IOException ex) {
+            throw new RuntimeException(
+                    "IOException during accept()", ex);
+        }
+    }
+    
+ protected ZygoteConnection createNewConnection(LocalSocket socket, String abiList)
+            throws IOException {
+        return new ZygoteConnection(socket, abiList);
+    }
+```
+
+ZygoteConnection创建后，接着执行``ZygoteConnection.processOneCommand()``：
+
+```
+com.android.internal.os.ZygoteConnection
+
+Runnable processOneCommand(ZygoteServer zygoteServer) {
+
+        ...
+        try {
+            // 读取新建进程的参数
+            args = readArgumentList();
+            descriptors = mSocket.getAncillaryFileDescriptors();
+        } ...
+
+        ...
+
+        pid = Zygote.forkAndSpecialize(parsedArgs.uid, parsedArgs.gid, parsedArgs.gids,
+                parsedArgs.runtimeFlags, rlimits, parsedArgs.mountExternal, parsedArgs.seInfo,
+                parsedArgs.niceName, fdsToClose, fdsToIgnore, parsedArgs.startChildZygote,
+                parsedArgs.instructionSet, parsedArgs.appDataDir);
+
+        ...
+    }
+```
+
+上面方法先读取待创建进程的参数列表，即前面``ZygoteProcess.startViaZygote()``中提到的，然后通过``Zygote.forkAndSpecialize()`` fork出app进程：
+
+```
+com.android.internal.os.Zygote
+
+public static int forkAndSpecialize(int uid, int gid, int[] gids, int runtimeFlags,
+          int[][] rlimits, int mountExternal, String seInfo, String niceName, int[] fdsToClose,
+          int[] fdsToIgnore, boolean startChildZygote, String instructionSet, String appDataDir) {
+        ...
+        int pid = nativeForkAndSpecialize(
+                  uid, gid, gids, runtimeFlags, rlimits, mountExternal, seInfo, niceName, fdsToClose,
+                  fdsToIgnore, startChildZygote, instructionSet, appDataDir);
+        ...
+        return pid;
+    }
+```
+
+后续走到native层``nativeForkAndSpecialize()``：
+
+```
+com_android_internal_os_Zygote.cpp
+
+static jint com_android_internal_os_Zygote_nativeForkAndSpecialize(
+    JNIEnv *env, jclass, jint uid, jint gid, jintArray gids,
+    jint runtime_flags, jobjectArray rlimits,
+    jint mount_external, jstring se_info, jstring nice_name,
+    jintArray managed_fds_to_close, jintArray managed_fds_to_ignore, jboolean is_child_zygote,
+    jstring instruction_set, jstring app_data_dir)
+{
+  ...
+
+  // 通用fork进程操作
+  pid_t pid = ForkCommon(env, false, fds_to_close, fds_to_ignore);
+
+  if (pid == 0)
+  {
+    SpecializeCommon(env, uid, gid, gids, runtime_flags, rlimits,
+                     capabilities, capabilities,
+                     mount_external, se_info, nice_name, false,
+                     is_child_zygote == JNI_TRUE, instruction_set, app_data_dir);
+  }
+  return pid;
+}
+```
+
+看下``ForkCommon``：
+
+```
+// Utility routine to fork a process from the zygote.
+static pid_t ForkCommon(JNIEnv *env, bool is_system_server,
+                        const std::vector<int> &fds_to_close,
+                        const std::vector<int> &fds_to_ignore)
+{
+  ...
+
+  // fork子进程
+  pid_t pid = fork();
+
+  ...
+  return pid;
+}
+```
+
+上面代码的逻辑主要是zygote进程通过ForkCommon，fork子进程，然后将pid返回给java层。
+
+整个流程到这里就结束了，回顾一下：
+
+* system server进程通过socket建立和zygote进程的连接，请求创建app进程
+* zygote进程启动时进程进入loop状态，当收到客户端socket请求后便被唤醒，读取app进程参数，通过native层的fork机制创建app进程，并返回对应的pid。
 
 
 
