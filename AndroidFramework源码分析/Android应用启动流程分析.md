@@ -1,17 +1,26 @@
+---
+title: Android应用启动流程分析
+categories: 技术
+---
+
+本文主要介绍Android的App应用进程、Application和launch activity的初始化过程，希望看完后对应用启动过程有更清晰的认识，了解这部分内容对以后研究应用启动耗时的计算逻辑也有一定帮助。
+
+<!--more-->
+
 ### Android启动进程概述
 
-Android系统启动过程中，先由init进程通过解析init.rc文件fork生成Zygote进程，即孵化器进程，是Android系统的首个Java进程。之后Zygote进程负责孵化System Server进程和App进程。
+Android系统启动过程中，先由init进程通过解析init.rc文件fork生成Zygote进程，该进程也是Android系统的首个Java进程。之后Zygote进程负责孵化System Server进程和App进程。
 
 <img src="https://github.com/hningoba/KnowledgeSummary/blob/master/img/android_framework_app_start.png?raw=true" style="zoom: 50%;" />
 
 ##### System Server进程：
 
-* System Server进程是Zygote孵化的第一个进程，属于Java Framework层
-* System Server进程负责启动、管理整个Java Framework，包含ActivityManager、WindowManager、PackageManager等服务
+* 由Zygote进程fork生成，System Server是Zygote孵化的第一个进程
+* 负责启动、管理整个Java Framework，包含ActivityManager、WindowManager、PackageManager等服务
 
 ##### App进程：
 
-* Zygote进程在App层中孵化出的第一个进程是Launcher进程，即手机的桌面App(桌面本身是一个App)。当用户点击手机桌面某个目标应用图标时，将由Launcher进程发起，通过binder发消息给System Server进程，然后System Server进程从Process.start()开始，为目标应用创建进程。
+* Zygote进程在App层中孵化出的第一个进程是Launcher进程，即手机的桌面App(桌面本身是一个App)
 * Zygote还会孵化出Browser、Email、Phone等App进程，每个App至少运行在一个进程上
 * 所有App进程都由Zygote进程fork生成
 
@@ -19,9 +28,42 @@ Android系统启动过程中，先由init进程通过解析init.rc文件fork生�
 
 ### 应用启动流程
 
-当用户点击手机桌面某个目标应用图标时，将由Launcher进程发起，通过binder发消息给System Server进程，然后System Server进程从Process.start()开始，为目标应用创建进程。
+当用户点击手机桌面某个应用的图标时，将由Launcher进程发起，通过binder发消息给System Server进程，然后System Server进程通过socket建立与zygote进程的连接，由zygote进程为目标应用创建进程。
 
 各家厂商一般会定制Launcher，在Android 9.0中，我们以Android默认启动页为例，即launcher3/Launcher.java跟踪代码。当应用图标被点击时，由桌面程序Launcher响应，首先执行``ItemClickHandler.onClick()``：
+
+#### Launcher响应桌面Icon点击
+
+##### 方法调用栈
+
+先看这一部分的方法调用，有个宏观认识后再对其中重要步骤展开：
+
+```
+- ItemClickHandler.onClick()
+- ItemClickHandler.onClickAppShortcut()
+- ItemClickHandler.startAppShortcutOrInfoActivity()
+- Launcher.startActivitySafely()
+- BaseDraggingActivity.startActivitySafely()
+- BaseDraggingActivity.startShortcutIntentSafely()
+- Activity.startActivity()
+- Activity.startActivityForResult()
+- Instrumentation.execStartActivity()
+- ActivityManagerService.startActivity()	// 跨进程交由AMS处理启动目标进程
+- ActivityManagerService.startActivityAsUser()
+- ActivityStarter.execute()
+- ActivityStarter.startActivityMayWait() 	// AMS.startActivityAsUser()中执行了setWait()
+- ActivityStarter.startActivity() // 此处经历多个startActivity重载方法调用
+- ActivityStarter.startActivityUnchecked() // 此处处理Activity启动模式(4种)
+- ActivityStackSupervisor.resumeFocusedStackTopActivityLocked() //几种启动模式最终都执行该方法
+- ActivityStack.resumeTopActivityUncheckedLocked()
+- ActivityStack.resumeTopActivityInnerLocked()
+- ActivityStackSupervisor.startSpecificActivityLocked() //冷启动时执行AMS.startProcessLocked()
+- ActivityManagerService.startProcessLocked()
+```
+
+##### ItemClickHandler.onClick()
+
+从Launcher响应用户点击应用的桌面Icon开始，看下``ItemClickHandler.onClick()``：
 
 ```
 com.android.launcher3.touch.ItemClickHandler
@@ -66,25 +108,11 @@ public class ItemClickHandler {
     }
 ```
 
-ItemClickHandler响应点击事件后，交给Launcher处理，最终通过``Activity.startActivity()``启动目标应用，后续调用流程如下：
+ItemClickHandler响应点击事件后，交给Launcher处理，最终通过启动目标应用。
 
-```
-- Activity.startActivity()
-- Activity.startActivityForResult()
-- Instrumentation.execStartActivity()
-- ActivityManagerService.startActivity()	// 跨进程交由AMS处理启动目标进程
-- ActivityManagerService.startActivityAsUser()
-- ActivityStarter.execute()
-- ActivityStarter.startActivityMayWait() 	// ActivityManagerService.startActivityAsUser()中执行了setWait()，所以此处if分支执行startActivityMayWait()
+##### ActivityStack.resumeTopActivityInnerLocked()
 
-- ActivityStarter.startActivity() // 此处经历多个startActivity重载方法调用
-- ActivityStarter.startActivityUnchecked() // 此处处理Activity启动模式(4种)
-- ActivityStackSupervisor.resumeFocusedStackTopActivityLocked() //几种启动模式最终都执行该方法
-- ActivityStack.resumeTopActivityUncheckedLocked()
-- ActivityStack.resumeTopActivityInnerLocked()
-```
-
-看下上面代码的最后一行：ActivityStackSupervisor.resumeTopActivityInnerLocked()具体实现逻辑：
+根据前面列的整体代码调用流程，从``Activity.startActivity()``开始，后续会调用到``ActivityStack.resumeTopActivityInnerLocked()``，看下该方法的具体实现逻辑：
 
 ```
 com.android.server.am.ActivityStack
@@ -98,11 +126,14 @@ private boolean resumeTopActivityInnerLocked(ActivityRecord prev, ActivityOption
 	...
 	// 启动目标Activity
 	mStackSupervisor.startSpecificActivityLocked(next, true, true);
-        
 }
 ```
 
-上面代码会去判断是否有栈顶Activity处于Resume状态，即``mResumedActivity != null``，如果有的话会，通过``startPausingLocked()``先让栈顶Activity执行Pause过程，然后再执行``ActivityStackSupervisor.startSpecificActivityLocked()``启动目标Activity。因为是冷启动，内部会先创建应用进程，再启动launch activity。看下``startSpecificActivityLocked()``逻辑：
+上面代码会去判断是否有栈顶Activity处于Resume状态，即``mResumedActivity != null``，如果有的话会，通过``startPausingLocked()``先让栈顶Activity执行Pause过程，然后再执行``ActivityStackSupervisor.startSpecificActivityLocked()``启动目标Activity。因为是冷启动，内部会先创建应用进程，再启动launch activity。
+
+##### ActivityStackSupervisor.startSpecificActivityLocked()
+
+看下``startSpecificActivityLocked()``逻辑：
 
 ```
 com.android.server.am.ActivityStackSupervisor
@@ -134,20 +165,30 @@ void startSpecificActivityLocked(ActivityRecord r,
 
 
 
-2020.4.22晚，AMS执行在SystemServer进程么？
-
-
-
 #### 创建应用进程
 
 创建应用进程主要分两块工作：
 
 * system server进程中，从AMS.startProcess()开始，先配置新建进程参数，然后通过socket建立与zygote进程的连接，将参数列表写给zygote进程，等待zygote进程fork新的进程，返回pid
-* zygote进程被system server进程的socket连接请求唤醒
+* zygote进程被system server进程的socket连接请求唤醒，在native层fork目标进程
 
 ##### system server发起请求
 
-上面``mService.startProcessLocked()``内部会执行一系列AMS的``startProcessLocked``重载方法。最终会调用``ActivityManagerService.startProcess()``：
+该部分方法调用栈如下：
+
+```
+- ActivityManagerService.startProcessLocked() // 后续会执行几个重载方法
+- ActivityManagerService.startProcess()
+- Process.start()
+- ZygoteProcess.start()
+- ZygoteProcess.startViaZygote()
+- ZygoteProcess.openZygoteSocketIfNeeded()
+- ZygoteProcess.zygoteSendArgsAndGetResult()
+```
+
+
+
+上面《应用启动流程》部分，最后代码跟到``mService.startProcessLocked()``，该方法内部会执行一系列AMS的``startProcessLocked``重载方法。最终会调用``ActivityManagerService.startProcess()``：
 
 ```
 com.android.server.am.ActivityManagerService
@@ -333,7 +374,23 @@ private static Process.ProcessStartResult zygoteSendArgsAndGetResult(
 
 下面看看zygote进程如何fork新的进程。
 
+
+
 ##### zygote创建app进程
+
+该部分方法调用栈如下：
+
+```
+- ZygoteInit.main()
+- ZygoteServer.runSelectLoop()
+- ZygoteServer.acceptCommandPeer()
+- ZygoteConnection.processOneCommand()
+- Zygote.forkAndSpecialize()
+- com_android_internal_os_Zygote_nativeForkAndSpecialize() // 后续执行native层逻辑
+- ForkCommon.fork()
+```
+
+
 
 zygote进程由init进程通过解析init.rc文件fork生成，zygote进程启动后会执行``ZygoteInit.main()``。
 
@@ -527,7 +584,7 @@ static pid_t ForkCommon(JNIEnv *env, bool is_system_server,
 
 #### 初始化主线程
 
-上面提到，进程创建完后会执行``ActivityThread.main()``，看下这部分内容：
+应用进程创建完后会执行``ActivityThread.main()``，看下这部分内容：
 
 ```
 android.app.ActivityThread
@@ -558,30 +615,30 @@ public static void main(String[] args) {
 
 #### 初始化Application
 
-这里先列下整体的方法调用栈，对调用流程有个大致印象，后续逐个细节展开：
+##### 方法调用栈
 
 ```
-ActivityThread.main()
-ActivityThread.attach()
-ActivityManagerService.attachApplication()
-ActivityManagerService.attachApplicationLocked()
-ActivityStackSupervisor.attachApplicationLocked()
-ActivityStackSupervisor.realStartActivityLocked()
-ActivityThread.ApplicationThread.scheduleTransaction()
-ClientTransactionHandler.scheduleTransaction()
-ActivityThread.sendMessage()
-ActivityThread.H.handleMessage()
-TransactionExecutor.execute()
-LaunchActivityItem.execute()
-ActivityThread.handleLaunchActivity()
-ActivityThread.performLaunchActivity()
+- ActivityThread.main()
+- ActivityThread.attach()
+- ActivityManagerService.attachApplication()
+- ActivityManagerService.attachApplicationLocked()
+- ActivityStackSupervisor.attachApplicationLocked()
+- ActivityStackSupervisor.realStartActivityLocked()
+- ActivityThread.ApplicationThread.scheduleTransaction()
+- ClientTransactionHandler.scheduleTransaction()
+- ActivityThread.sendMessage()
+- ActivityThread.H.handleMessage()
+- TransactionExecutor.execute()
+- LaunchActivityItem.execute()
+- ActivityThread.handleLaunchActivity()
+- ActivityThread.performLaunchActivity()
 ```
 
 
 
 ##### ActivityThread：
 
-前面讲主线程初始化时，在代码``ActivityThread.attach()``的注释中提到内部会初始化Application和启动页Activity（AndroidManifest配置了LAUNCHER category的Activity），看下这部分逻辑：
+前面讲主线程初始化时，在代码``ActivityThread.attach()``的注释中提到内部会初始化Application，看下这部分逻辑：
 
 ```
 android.app.ActivityThread
@@ -813,15 +870,13 @@ ClientTransaction.schedule()	// 方法内mClient对象的实现类是ActivityThr
 
 如何调度ClientTransaction后面会讲到。
 
-这里先提下，上面代码中的mClient实现类是ActivityThread.ApplicationThread。细节就不展开了，从ActivityThread.main()开始，即《初始化主线程》的开头部分讲到的，跟下下面代码流程就可以知道这个内容：
+这里先提下，上面代码中的mClient实现类是ActivityThread.ApplicationThread，可以在ActivityStackSupervisor.realStartActivityLocked()中看到这部分逻辑。从ActivityThread.main()开始，即《初始化主线程》的开头部分讲到的，跟下下面代码流程就可以知道这个内容：
 
 ```
 ActivityThread.main()
 ActivityThread.attach()
 ActivityManagerService.attachApplication(mAppThread, startSeq) // mAppThread就是ActivityThread.ApplicationThread的实例，也是我们要跟的mClient
-
 ActivityManagerService.attachApplicationLocked() // 这里构造ProcessRecord对象，并将其thread field赋值为mAppThread
-
 ActivityStackSupervisor.attachApplicationLocked(ProcessRecord app) // app.thread即mAppThread
 ActivityStackSupervisor.realStartActivityLocked()
 ClientTransaction.obtain(app.thread, r.appToken) // 这里创建ClientTransaction实例，并将ClientTransaction.mClient赋值为入参app.thread，即ActivityThread.ApplicationThread
@@ -836,8 +891,8 @@ ClientTransaction.obtain(app.thread, r.appToken) // 这里创建ClientTransactio
 ```
 ActivityThread.ApplicationThread.scheduleTransaction()
 ClientTransactionHandler.scheduleTransaction()
-ActivityThread.sendMessage()	// 使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
-ActivityThread.H.handleMessage()	// H接收消息，其中msg.what == EXECUTE_TRANSACTION
+ActivityThread.sendMessage()	//使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
+ActivityThread.H.handleMessage()	//H接收消息，其中msg.what == EXECUTE_TRANSACTION
 ```
 
 
@@ -966,7 +1021,7 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
 上面这段代码主要做Application、Activity、Context的初始化，建立三者之间的关系，执行Activity、Fragment的onCreate生命周期方法：
 
 * 通过Intent解析Component，为实例化目标Activity做准备
-* 利用Instrument实例化目标Activity
+* 利用Instrument实例化目标Activity，启动阶段将实例化luanch activity
 * 初始化Application和Context，并将Context attach到Application。内部会执行Application的attachBaseContext()、onCreate()
 * 将前面实例化的Activity对象进行相关初始化工作，包括创建Window、绑定mApplication/mIntent等
 * 给Activity设置主题
@@ -974,98 +1029,16 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
 
 
 
-#### Pause栈顶Activity：
+#### 总结
 
-此处分开两段，先看一下栈顶Activity是如何退出的。在ActivityStack.resumeTopActivityInnerLocked()中，如果是栈顶Activity退出，会执行ActivityStack.startPausingLocked()。
+App整体启动流程内容比较多，可以通过Launcher响应屏幕点击、应用进程的创建、Application初始化这三部分来理解。
 
-```
-com.android.server.am.ActivityStack
+* 由Launcher响应用户点击屏幕应用Icon事件
 
- final boolean startPausingLocked(boolean userLeaving, boolean uiSleeping,
-            ActivityRecord resuming, boolean pauseImmediately) {
-        ...
-        
-        if (prev.app != null && prev.app.thread != null) {
-        	...
-        	// 通过ClientLifecycleManager.scheduleTransaction将PauseActivityItem加入任务队列
-                mService.getLifecycleManager().scheduleTransaction(prev.app.thread, prev.appToken,
-                        PauseActivityItem.obtain(prev.finishing, userLeaving,
-                                prev.configChangeFlags, pauseImmediately));
-            } catch (Exception e) {
-                ...
-            }
-        }
-        ...
-    }
-```
+* system server进程通过socket建立与zygote的通信，从AMS.startProcess()开始为目标APP申请创建进程
 
-Android 9.0引入ClientLifecycleManager和ClientTransactionHandler来辅助管理Activity生命周期。
+* zygote进程被system server进程的socket连接请求唤醒，在native层fork目标进程
 
-后续执行流程：
+* 应用进程创建后执行ActivityTread.main()，先初始化主线程，再实例化Application对象，并启动launch Activity
 
-```
-ClientLifecycleManager.scheduleTransaction
-ClientTransaction.schedule	// 方法内mClient对象的实现是ActivityThread.ApplicationThread
-ActivityThread.ApplicationThread.scheduleTransaction
-ClientTransactionHandler.scheduleTransaction
-ActivityThread.sendMessage	// 使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
-ActivityThread.H.handleMessage	// H接收消息，其中msg.what == EXECUTE_TRANSACTION
-```
-
-Handler H的实例接收到EXECUTE_TRANSACTION消息后调用TransactionExecutor.execute方法切换Activity状态，代码如下：
-
-```
-android.app.ActivityThread.H
-
-public void handleMessage(Message msg) {
-	 case EXECUTE_TRANSACTION:
-     final ClientTransaction transaction = (ClientTransaction) msg.obj;
-     mTransactionExecutor.execute(transaction);
-}
-```
-
-后续执行：
-
-```
-TransactionExecutor.execute
-TransactionExecutor.executeLifecycleState
-PauseActivityItem.execute
-ClientTransactionHandler.handlePauseActivity	// 抽象方法，由子类ActivityThread实现
-```
-
-看下ActivityThread执行pause Activity的操作：
-
-```
-android.app.ActivityThread
-
-@Override
-    public void handlePauseActivity(IBinder token, boolean finished, boolean userLeaving,
-            int configChanges, PendingTransactionActions pendingActions, String reason) {
-        ActivityClientRecord r = mActivities.get(token);
-        if (r != null) {
-            ...
-
-            r.activity.mConfigChangeFlags |= configChanges;
-            performPauseActivity(r, finished, reason, pendingActions);
-
-            // Make sure any pending writes are now committed.
-            if (r.isPreHoneycomb()) {
-                QueuedWork.waitToFinish();
-            }
-            mSomeActivitiesChanged = true;
-        }
-    }
-```
-
-后续执行：
-
-```
-ActivityThread.performPauseActivity
-ActivityThread.performPauseActivityIfNeeded
-Instrumentation.callActivityOnPause
-Activity.performPause
-Activity.onPause
-```
-
-可以看到，最终将执行我们非常熟悉的Activity生命周期方法Activity.onPause()。
-
+  

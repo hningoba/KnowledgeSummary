@@ -1,93 +1,16 @@
-Matrix是WeChat研发的一款APM工具，功能比较丰富，该库的主要贡献者同时也是[《Android开发高手课》](https://time.geekbang.org/column/intro/100021101)的作者。对APP性能感兴趣的同学也可以深入看看该课程。
+---
+title: Matrix-TraceCanary实现分析
+categories: 技术
 
-Matrix-android 当前监控范围包括：应用安装包大小，帧率变化，启动耗时，卡顿，慢方法，SQLite 操作优化，文件读写，内存泄漏等等。
+---
 
-- APK Checker: 针对 APK 安装包的分析检测工具，根据一系列设定好的规则，检测 APK 是否存在特定的问题，并输出较为详细的检测结果报告，用于分析排查问题以及版本追踪
-- Resource Canary: 基于 WeakReference 的特性和 [Square Haha](https://github.com/square/haha) 库开发的 Activity 泄漏和 Bitmap 重复创建检测工具
-- Trace Canary: 监控界面流畅性、启动耗时、页面切换耗时、慢函数及卡顿等问题
-- SQLite Lint: 按官方最佳实践自动化检测 SQLite 语句的使用质量
-- IO Canary: 检测文件 IO 问题，包括：文件 IO 监控和 Closeable Leak 监控
+本文主要介绍Matrix的Trace部分，主要涉及帧率、ANR、慢函数、启动耗时的检测逻辑。
 
+<!--more-->
 
+### Trace Canary主要特性
 
-## Matrix初始化
-
-使用Matrix之前，看下Matrix的初始化逻辑：
-
-```
-sample.tencent.matrix.MatrixApplication
-
-@Override
-    public void onCreate() {
-        super.onCreate();
-        // Matrix配置，项目实际使用时可以动态下发
-        DynamicConfigImplDemo dynamicConfig = new DynamicConfigImplDemo();
-        boolean matrixEnable = dynamicConfig.isMatrixEnable();
-        boolean fpsEnable = dynamicConfig.isFPSEnable();
-        boolean traceEnable = dynamicConfig.isTraceEnable();
-
-				// 初始化Builder
-        Matrix.Builder builder = new Matrix.Builder(this);
-        
-        // 添加自定义PluginListener
-        builder.patchListener(new TestPluginListener(this));
-
-        //trace 配置
-        TraceConfig traceConfig = new TraceConfig.Builder()
-                .dynamicConfig(dynamicConfig)
-                .enableFPS(fpsEnable) // 监控FPS帧率
-                .enableEvilMethodTrace(traceEnable) // 慢函数
-                .enableAnrTrace(traceEnable) // ANR检测
-                .enableStartup(traceEnable) // 启动耗时
-                .splashActivities("sample.tencent.matrix.SplashActivity;")
-                .isDebug(true)
-                .isDevEnv(false)
-                .build();
-
-				// Trace模块的插件，内部管理FrameTracer/EvilMethodTracer/AnrTracer/StartupTracer
-        TracePlugin tracePlugin = (new TracePlugin(traceConfig));
-        builder.plugin(tracePlugin);
-
-        if (matrixEnable) {
-            //Resource监控初始化
-            Intent intent = new Intent();
-            ResourceConfig.DumpMode mode = ResourceConfig.DumpMode.AUTO_DUMP;
-            intent.setClassName(this.getPackageName(), "com.tencent.mm.ui.matrix.ManualDumpActivity");
-            ResourceConfig resourceConfig = new ResourceConfig.Builder()
-                    .dynamicConfig(dynamicConfig)
-                    .setAutoDumpHprofMode(mode)
-                    .setNotificationContentIntent(intent)
-                    .build();
-            builder.plugin(new ResourcePlugin(resourceConfig));
-            ResourcePlugin.activityLeakFixer(this);
-
-            //文件IO监控初始化
-            IOCanaryPlugin ioCanaryPlugin = new IOCanaryPlugin(new IOConfig.Builder()
-                    .dynamicConfig(dynamicConfig)
-                    .build());
-            builder.plugin(ioCanaryPlugin);
-
-            //Sqlite监控初始化
-            SQLiteLintConfig sqlLiteConfig = new SQLiteLintConfig(SQLiteLint.SqlExecutionCallbackMode.CUSTOM_NOTIFY);
-            builder.plugin(new SQLiteLintPlugin(sqlLiteConfig));
-        }
-
-				// 初始化Matrix
-        Matrix.init(builder.build());
-
-				// 启动Trace
-        //start only startup tracer, close other tracer.
-        tracePlugin.start();
-    }
-```
-
-可以看出，主要是对开篇介绍的Trace Canary、Resource Canary、IO Canary、Sqlite Lint的初始化。下面通过分析这些模块看看各种性能监控项的实现原理。
-
-
-
-## Trace Canary
-
-Trace Canary主要特效如下：
+回顾下Trace Canary主要特性：
 
 - 编译期动态修改字节码, 高性能记录执行耗时与调用堆栈
 - 准确的定位到发生卡顿的函数，提供执行堆栈、执行耗时、执行次数等信息，帮助快速解决卡顿问题
@@ -95,15 +18,17 @@ Trace Canary主要特效如下：
 
 
 
-Tracer类继承关系：
+看下Tracer模块的类继承关系：
 
 ```
 - Tracer
-	- FrameTracer
-	- AnrTracer
-	- EvilMethodTracer
-	- StratupTracer
+ - FrameTracer
+ - AnrTracer
+ - EvilMethodTracer
+ - StratupTracer
 ```
+
+通过类名就能看出来每个类的大体功能，下面逐个介绍。
 
 
 
@@ -540,7 +465,7 @@ com.tencent.matrix.trace.tracer.AnrTracer
 看下AnrTask的逻辑：
 
 ```
-com.tencent.matrix.trace.tracer.AnrTracer.AnrTask
+com.tencent.matrix.trace.tracer.AnrTracer.AnrHandleTask
 
 @Override
 public void run() {
@@ -730,57 +655,223 @@ AnalyseTask的逻辑和AnrTask类似，只是log中的部分内容不一样，�
 
 
 
-### 应用启动耗时
+### 启动耗时检测
 
-启动耗时的主要代码在StartupTracer。
+##### 三种启动方式：
+
+[官方](https://developer.android.com/topic/performance/vitals/launch-time)定义了三种启动方式：
+
+* 冷启动：彻底杀死应用进程后启动APP的方式。系统会为应用创建进程、主线程，会执行Application、launch Activity的初始化方法。
+* 热启动：没有杀死应用进程情况下启动APP的方式，比如应用切到后台。热启动中，系统的所有工作就是将您的 Activity 带到前台。这种情况不会执行Application的初始化方法，如果应用的所有 Activity 都还驻留在内存中，则应用可以无须重复对象初始化、布局扩充和呈现。
+* 温启动：
+  * 有两种常见场景：
+    * 点击回退键方式退出应用
+    * 应用在后台被系统回收
+  * 启动逻辑介于冷启动和热启动之间。如果是回退键方式退出应用再重启，不会执行Application初始化，但是需要初始化Activity。如果是系统回收后的重启，Application和Activity都会初始化，但是可以通过savedInstanceState拿到退出前Activity的状态。
 
 
 
-##### 如何获取应用启动流程的开始节点？
+##### 冷启动分析
 
-思路是通过Hook的方式，具体代码在ActivityThreadHacker。应用启动时调用栈如下图：
-
-![matrix_ActivityThreadHacker_method_trace](matrix_ActivityThreadHacker_method_trace.png)
-
-从上图代码调用流程中可以看到，MatrixApplication.onCreate()调用AppMethodBeat.i()，进而执行ActivityThreadHacker.hackSysHandlerCallback()，在hackSysHandlerCallback()内部计算Application创建的开始/结束时间点、launch activity启动时间点等等。具体实现逻辑后面会逐个介绍。
-
-如果看demo中MatrixApplication代码就会发现，MatrixApplication.onCreate()中找不到AppMethodBeat.i()的调用。这个逻辑其实是通过ASM进行插桩实现的。具体代码执行逻辑在matrix-gradle-plugin的MethodTracer：
+我们这里只对冷启动做分析，冷启动Demo后，可以看到如下log：
 
 ```
-com.tencent.matrix.trace.MethodTracer.TraceClassAdapter
+Matrix.StartupTracer: [report] applicationCost:42 firstScreenCost:244 allCost:2306 isWarmStartUp:false
+```
 
-@Override
-        protected void onMethodEnter() {
-            TraceMethod traceMethod = collectedMethodMap.get(methodName);
-            if (traceMethod != null) {
-                traceMethodCount.incrementAndGet();
-                mv.visitLdcInsn(traceMethod.id);
-                mv.visitMethodInsn(INVOKESTATIC, TraceBuildConstants.MATRIX_TRACE_CLASS, "i", "(I)V", false);
+显示非热启动（即冷启动），Application耗时42ms，首屏耗时244ms，总耗时2306ms。通过log可以知道是StartupTracer做的上报。
+
+计算应用的启动耗时，就需要知道Application的启动开始、启动完成时间点，launch Activity的启动开始、启动完成时间点。通过下图StartupTracer的类注释，可以大概了解如下几个字段的含义和对应的耗时区间：
+
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_StartupTracer_field_annotation.png" />
+
+简单解释下上图中几个关键统计点：
+
+* Application初始化耗时(applicationCost)：
+  * 指Application的初始化耗时。
+  * 起始点对应Application.onCreate()，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段标记，该字段在ActivityThreadHacker.hackSysHandlerCallback()赋值。
+  * 结束点对应handle launch activity message的时间点（通过hook ActivityThread的mH.mCallback实现拦截主线程message），由``ActivityThreadHacker.sApplicationCreateEndTime``字段标记，该字段在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
+* 首屏耗时(firstScreenCost)：
+  * 指app启动到第一个Activity(launch activity)初始化完成的耗时，粗略包含applicationCost + launchActivity初始化耗时。
+  * 起始点和applicationCost的起始点一样，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段标记。
+  * 结束点对应开屏页的onWindowFocusChange()（但是代码跟踪显示是IssueListActivity.onWindowFocusChange()），在StartupTracer.onActivityFocused()中标记。
+* 冷启动耗时(coldCost)
+  * app启动到第一个对用户有意义的Activity（对应图中的careActivity）初始化完成耗时。应用一般将闪屏页即launch activity仅作为logo展示、应用初始化的工作，其后的第一个Activity做为主页Activity，这个Activity就是careActivity，所以把careActivity的初始化完成做为coldCost的结束点。
+* 温启动耗时(warmCost)
+  * 因为Application不会重新初始化，只统计Activity的初始化耗时。
+  * 起始点是launch Activity初始化的开始点。
+  * 结束点是launch Activity onWindfocusChanged()执行点。
+
+
+
+##### StartupTracer：
+
+前面讲到启动耗时统计逻辑在StartupTracer。看下StartupTracer.onActivityFocused()，该方法在Activity.onWindfocusChanged()内部执行，这部分通过插桩实现。
+
+```
+com.tencent.matrix.trace.tracer.StartupTracer
+
+    @Override
+    public void onActivityFocused(String activity) {
+    	// coldCost == 0时认为是冷启动状态
+        if (isColdStartup()) {
+            if (firstScreenCost == 0) {
+            	// 第一个Activity.onWindfocusChanged()执行时统计首屏耗时
+                this.firstScreenCost = uptimeMillis() - ActivityThreadHacker.getEggBrokenTime();
             }
+            
+            //闪屏页已经初始化，其之后的第一个Activity.onWindfocusChanged()执行时，开始统计冷启动耗时
+            if (hasShowSplashActivity) {
+                coldCost = uptimeMillis() - ActivityThreadHacker.getEggBrokenTime();
+            } else {
+            	// 判断闪屏页是否启动，splashActivities在MatrixApplication.onCraete是配置的
+                if (splashActivities.contains(activity)) {
+                    hasShowSplashActivity = true;
+                } else if (splashActivities.isEmpty()) {
+                    MatrixLog.i(TAG, "default splash activity[%s]", activity);
+                    coldCost = firstScreenCost;
+                } else {
+                    ...
+                }
+            }
+            
+            // 冷启动后，执行AnalyseTask
+            if (coldCost > 0) {
+                analyse(ActivityThreadHacker.getApplicationCost(), firstScreenCost, coldCost, false);
+            }
+
+        } else if (isWarmStartUp()) {
+            // 温启动和冷启动逻辑类似，记录的开始、结束点前面概念部分已经讲到
         }
+
+    }
 ```
 
-下面简单看下MethodTracer都执行了哪些操作，对ASM和gradle Transform不了解的同学可以看看我写的这两篇文章：[自定义Gradle插件介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/自定义Gradle插件介绍.md)、[ASM用法介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/ASM用法介绍.md)。
+再解释下上面部分代码：
 
-##### MethodTracer
+* isColdStartup()：coldCost为0时即为冷启动。
+* coldCost：闪屏页初始化后，其之后的第一个Activity(careActivity)的onWindfocusChanged()执行时，计算冷启动耗时。
+* applicationCost应用耗时：即ActivityThreadHacker.getApplicationCost()，起始点、结束点计算逻辑后面再展开。
+* ActivityThreadHacker.getEggBrokenTime()：Application初始化的开始点。
+* splashActivities：保持闪屏页列表，在TraceConfig中初始化。demo中是在MatrixApplication.onCraete()手动配置splash Activity。
+
+有了上面这些耗时统计，AnalyseTask利用这些数据，进行堆栈优化、数据整理，打印出前面的启动耗时log。
 
 
 
+##### Application初始化耗时：
 
-
-##### Application初始化耗时
-
-其中，Application初始化耗时的获取方式是：
+前面讲到，Application初始化耗时的获取方式是``ActivityThreadHacker.getApplicationCost()``：
 
 ```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
 public static long getApplicationCost() {
         return ActivityThreadHacker.sApplicationCreateEndTime - ActivityThreadHacker.sApplicationCreateBeginTime;
     }
 ```
 
+内部记录了Application初始的开始点sApplicationCreateBeginTime和结束点sApplicationCreateEndTime。那么这两个点在什么时机赋值的呢？
+
+通过跟踪代码，可以发现sApplicationCreateBeginTime是在``ActivityThreadHacker.hackSysHandlerCallback()``中赋值。在其内部打个断电，冷启动APP后，方法调用栈如下图：
+
+![matrix_ActivityThreadHacker_method_trace](matrix_ActivityThreadHacker_method_trace.png)
+
+从上图代码调用流程中可以看到，MatrixApplication.onCreate()调用AppMethodBeat.i()（通过插桩实现），进而执行ActivityThreadHacker.hackSysHandlerCallback()，即sApplicationCreateBeginTime对应Application.onCreate()。
+
+sApplicationCreateEndTime在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
+
+下面讲下``ActivityThreadHacker``相关逻辑。
+
+##### ActivityThreadHacker：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+public static void hackSysHandlerCallback() {
+        try {
+            sApplicationCreateBeginTime = SystemClock.uptimeMillis();
+            sApplicationCreateBeginMethodIndex = AppMethodBeat.getInstance().maskIndex("ApplicationCreateBeginMethodIndex");
+            Class<?> forName = Class.forName("android.app.ActivityThread");
+            Field field = forName.getDeclaredField("sCurrentActivityThread");
+            field.setAccessible(true);
+            // step1. 通过反射获取ActivityThread.sCurrentActivityThread对象
+            Object activityThreadValue = field.get(forName);
+            
+            Field mH = forName.getDeclaredField("mH");
+            mH.setAccessible(true);
+            // step2. 通过反射获取sCurrentActivityThread的mH对象
+            Object handler = mH.get(activityThreadValue);
+            
+            Class<?> handlerClass = handler.getClass().getSuperclass();
+            Field callbackField = handlerClass.getDeclaredField("mCallback");
+            callbackField.setAccessible(true);
+            Handler.Callback originalCallback = (Handler.Callback) callbackField.get(handler);
+            HackCallback callback = new HackCallback(originalCallback);
+            // step3. 将mH中的mCallback设置成HackCallback
+            callbackField.set(handler, callback);
+        } catch (Exception e) {
+            MatrixLog.e(TAG, "hook system handler err! %s", e.getCause().toString());
+        }
+    }
+```
+
+上面这部分代码，通过注释可以了解到，本质上是通过反射，将ActivityThreadHacker.HackCallback设置成主线程Handler的mCallback。这样，就可以拦截主线程消息做一些工作。对ActivityThread还不太了解的同学可以看看这篇文章：[理解Application创建过程](http://gityuan.com/2017/04/02/android-application/)。
+
+拦截了主线程消息做的事情看看下面代码：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+private final static class HackCallback implements Handler.Callback {
+        private static final int LAUNCH_ACTIVITY = 100;
+        private static final int CREATE_SERVICE = 114;
+        private static final int RECEIVER = 113;
+        public static final int EXECUTE_TRANSACTION = 159; // for Android 9.0
+        private static boolean isCreated = false;
+        private static int hasPrint = 10;
+
+        private final Handler.Callback mOriginalCallback;
+
+        HackCallback(Handler.Callback callback) {
+            this.mOriginalCallback = callback;
+        }
+
+        @Override
+        public boolean handleMessage(Message msg) {
+
+            if (!AppMethodBeat.isRealTrace()) {
+                return null != mOriginalCallback && mOriginalCallback.handleMessage(msg);
+            }
+
+            boolean isLaunchActivity = isLaunchActivity(msg);
+            if (hasPrint > 0) {
+                MatrixLog.i(TAG, "[handleMessage] msg.what:%s begin:%s isLaunchActivity:%s", msg.what, SystemClock.uptimeMillis(), isLaunchActivity);
+                hasPrint--;
+            }
+            if (isLaunchActivity) {
+                ActivityThreadHacker.sLastLaunchActivityTime = SystemClock.uptimeMillis();
+                ActivityThreadHacker.sLastLaunchActivityMethodIndex = AppMethodBeat.getInstance().maskIndex("LastLaunchActivityMethodIndex");
+            }
+
+            if (!isCreated) {
+                if (isLaunchActivity || msg.what == CREATE_SERVICE || msg.what == RECEIVER) { // todo for provider
+                    ActivityThreadHacker.sApplicationCreateEndTime = SystemClock.uptimeMillis();
+                    ActivityThreadHacker.sApplicationCreateScene = msg.what;
+                    isCreated = true;
+                }
+            }
+
+            return null != mOriginalCallback && mOriginalCallback.handleMessage(msg);
+        }
+}
+```
 
 
-##### launch Activity启动时间
+
+
+
+##### Launch Activity初始化耗时检测：
 
 ActivityThreadHacker中有个方法是获取launch activity的启动时间点：
 
@@ -821,17 +912,14 @@ private boolean isLaunchActivity(Message msg) {
 
 
 
-应用启动后会收到如下log：
-
-```
-sample.tencent.matrix I/Matrix.StartupTracer: [report] applicationCost:23 firstScreenCost:125 allCost:2203 isWarmStartUp:false
-```
 
 
 
-字段解释：
 
-<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_StartupTracer_field_annotation.png" width="80%" />
+##### 总结：
+
+* Application初始化开始、结束节点：
+* Launch Activity初始化开始、结束节点：
 
 
 
@@ -861,6 +949,41 @@ matrix-gradle-plugin : MethodTracer.insertWindowFocusChangeMethod()
 
     }
 ```
+
+
+
+### Trace插桩
+
+在讲应用启动耗时，提到了几个插桩点，主要实现在MethodTracer，看下这部分代码。对ASM和gradle Transform不了解的同学可以先看看我写的这两篇文章了解下基本用法：[自定义Gradle插件介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/自定义Gradle插件介绍.md)、[ASM用法介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/ASM用法介绍.md)。
+
+前面讲启动耗时检测统计Application耗时时提到，demo中MatrixApplication执行AppMethodBeat.i()，进而执行``ActivityThreadHacker.hackSysHandlerCallback()``，在这里记录sApplicationCreateBeginTime。
+
+跟踪代码就会发现，MatrixApplication.onCreate()中找不到AppMethodBeat.i()的调用。这个逻辑其实是通过ASM进行插桩实现的。具体代码执行逻辑在matrix-gradle-plugin的MethodTracer：
+
+```
+com.tencent.matrix.trace.MethodTracer.TraceClassAdapter
+
+@Override
+        protected void onMethodEnter() {
+            TraceMethod traceMethod = collectedMethodMap.get(methodName);
+            if (traceMethod != null) {
+                traceMethodCount.incrementAndGet();
+                mv.visitLdcInsn(traceMethod.id);
+                // 插入静态方法AppMethodBeat.i()
+                mv.visitMethodInsn(INVOKESTATIC, TraceBuildConstants.MATRIX_TRACE_CLASS, "i", "(I)V", false);
+            }
+        }
+```
+
+其中，TraceBuildConstants.MATRIX_TRACE_CLASS为"com/tencent/matrix/trace/core/AppMethodBeat"。``mv.visitMethodInsn``这行代码表示插入静态方法``AppMethodBeat.i()``。
+
+
+
+##### MethodTracer
+
+下面简单看下MethodTracer都执行了哪些操作
+
+
 
 
 

@@ -603,8 +603,6 @@ android.view.DisplayEventReceiver.java
 
 
 
-
-
 ### 帧率计算
 
 ##### 方式一：FrameCallback
