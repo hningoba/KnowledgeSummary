@@ -615,6 +615,8 @@ public static void main(String[] args) {
 
 #### 初始化Application
 
+Application初始化流程内容也比较多，这里先列一下主要的方法调用栈，后续对部分细节不了解可以参考这个调用栈自行跟进学习。
+
 ##### 方法调用栈
 
 ```
@@ -851,63 +853,106 @@ final boolean realStartActivityLocked(ActivityRecord r, ProcessRecord app,
     }
 ```
 
-上面代码中为ClientTransaction对象添加callback，即LaunchActivityItem。然后设置当前的生命周期状态，最后调用``ClientLifecycleManager.scheduleTransaction()``执行。
-
-后续执行流程如下：
+上面代码中为ClientTransaction对象添加callback，即LaunchActivityItem。然后设置当前的生命周期状态，最后调用``ClientLifecycleManager.scheduleTransaction()``。``scheduleTransaction()``内部执行``ClientTransaction.schedule()``：
 
 ```
-ClientLifecycleManager.scheduleTransaction()
-ClientTransaction.schedule()	// 方法内mClient对象的实现类是ActivityThread.ApplicationThread，可以在ActivityStackSupervisor.realStartActivityLocked()中看到这部分逻辑
-```
+android.app.servertransaction.ClientTransaction
 
-上面``ClientTransaction.schedule()``调用了mClient的scheduleTransaction()：
-
-```
- public void schedule() throws RemoteException {
+public void schedule() throws RemoteException {
         mClient.scheduleTransaction(this);
 }
 ```
 
-如何调度ClientTransaction后面会讲到。
-
-这里先提下，上面代码中的mClient实现类是ActivityThread.ApplicationThread，可以在ActivityStackSupervisor.realStartActivityLocked()中看到这部分逻辑。从ActivityThread.main()开始，即《初始化主线程》的开头部分讲到的，跟下下面代码流程就可以知道这个内容：
+上面方法中的mClient对象，代码中可以只能看到声明类型是``IApplicationThread``，实际上其实现类是``ActivityThread.ApplicationThread``。这个点跟下下面代码流程就可以知道这个内容：
 
 ```
-ActivityThread.main()
-ActivityThread.attach()
-ActivityManagerService.attachApplication(mAppThread, startSeq) // mAppThread就是ActivityThread.ApplicationThread的实例，也是我们要跟的mClient
-ActivityManagerService.attachApplicationLocked() // 这里构造ProcessRecord对象，并将其thread field赋值为mAppThread
-ActivityStackSupervisor.attachApplicationLocked(ProcessRecord app) // app.thread即mAppThread
-ActivityStackSupervisor.realStartActivityLocked()
-ClientTransaction.obtain(app.thread, r.appToken) // 这里创建ClientTransaction实例，并将ClientTransaction.mClient赋值为入参app.thread，即ActivityThread.ApplicationThread
+- ActivityThread.main()
+- ActivityThread.attach()
+- ActivityManagerService.attachApplication(mAppThread, startSeq) // mAppThread就是--ActivityThread.ApplicationThread的实例，也是我们要跟的mClient对象
+- ActivityManagerService.attachApplicationLocked() // 这里构造ProcessRecord对象，并将其thread field赋值为mAppThread
+- ActivityStackSupervisor.attachApplicationLocked(ProcessRecord app) // app.thread即mAppThread
+- ActivityStackSupervisor.realStartActivityLocked()
+- ClientTransaction.obtain(app.thread, r.appToken) // 这里创建ClientTransaction实例，并将- ClientTransaction.mClient赋值为入参app.thread，即ActivityThread.ApplicationThread
 ```
+
+下面看看ClientTransaction的执行逻辑。
 
 
 
 ##### ClientTransaction：
 
-继上面接着讲``ClientTransaction.schedule()``，内部执行``mClient.scheduleTransaction(this);``。因为mClient实现类是ActivityThread.ApplicationThread，那看下``ActivityThread.ApplicationThread.scheduleTransaction()``。内部实现比较简单，主要是执行了下面的代码调用：
+Android9.0之后，系统引入了ClientTransaction来辅助管理应用及页面生命周期。
+
+继上面接着讲``ClientTransaction.schedule()``，内部执行``mClient.scheduleTransaction(this)``。上面讲到``mClient``实现类是``ActivityThread.ApplicationThread``，那看下``ActivityThread.ApplicationThread.scheduleTransaction()``。该方法内部实现比较简单，主要是执行了下面的代码调用：
 
 ```
-ActivityThread.ApplicationThread.scheduleTransaction()
-ClientTransactionHandler.scheduleTransaction()
-ActivityThread.sendMessage()	//使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
-ActivityThread.H.handleMessage()	//H接收消息，其中msg.what == EXECUTE_TRANSACTION
+- ActivityThread.ApplicationThread.scheduleTransaction()
+- ClientTransactionHandler.scheduleTransaction() //ActivityThread继承自ClientTransactionHandler
+- ActivityThread.sendMessage()	//使用ActivityThread.mH（Handler实现）发送消息，即主线程消息
+- ActivityThread.H.handleMessage()	//H接收消息，其中msg.what == EXECUTE_TRANSACTION
 ```
+
+看下上面方法调用栈中的``ClientTransactionHandler.scheduleTransaction()``：
+
+```
+public abstract class ClientTransactionHandler {
+
+    void scheduleTransaction(ClientTransaction transaction) {
+        transaction.preExecute(this);
+        // 向ActivityThread.mH发送个消息，msg.what为EXECUTE_TRANSACTION，object为ClientTransaction
+        sendMessage(ActivityThread.H.EXECUTE_TRANSACTION, transaction);
+    }
+}
+```
+
+上面``sendMessage()``的实现在子类ActivityThread中：
+
+```
+android.app.ActivityThread
+
+	void sendMessage(int what, Object obj) {
+        sendMessage(what, obj, 0, 0, false);
+    }
+
+    private void sendMessage(int what, Object obj, int arg1, int arg2, boolean async) {
+        Message msg = Message.obtain();
+        msg.what = what;
+        msg.obj = obj;
+        msg.arg1 = arg1;
+        msg.arg2 = arg2;
+        if (async) {
+            msg.setAsynchronous(true);
+        }
+        // 将消息发送给mH
+        mH.sendMessage(msg);
+    }
+```
+
+所以，从``ClientTransactionHandler.scheduleTransaction()``和``ActivityThread.sendMessage()``这两个方法的实现我们可以知道，其实是向``ActivityThread.mH``发送个消息，msg.what为EXECUTE_TRANSACTION，object为ClientTransaction。
+
+关于ActivityThread.mH中如何处理消息及ClientTransaction的我们后续会讲到。
+
+**总结**：
+
+* 从ActivityThread.main()开始，经过ActivityManagerService、ActivityStackSupervisor，最后通过ClientTransaction把LaunchActivityItem组装为ClientTransaction的一个Callback
+* ClientTransaction通过``ActivityThread.ApplicationThread``给ActivityThread.mH发送主线程消息，其中消息的what为EXECUTE_TRANSACTION，object为ClientTransaction
+* 在执行消息任务时执行ClientTransaction的Callback，即LaunchActivityItem，其内部发起Application、launch activity相关初始化流程，这部分后面会讲到
 
 
 
 ##### ActivityThread.mH：
 
-ActivityThread.mH接收到EXECUTE_TRANSACTION消息后调用TransactionExecutor.execute方法，代码如下：
+ActivityThread.mH接收到``msg.what == EXECUTE_TRANSACTION``的消息后执行``TransactionExecutor.execute()``，代码如下：
 
 ```
 android.app.ActivityThread.H
 
 public void handleMessage(Message msg) {
-	 case EXECUTE_TRANSACTION:
-     final ClientTransaction transaction = (ClientTransaction) msg.obj;
-     mTransactionExecutor.execute(transaction);
+	switch (msg.what) {
+     case EXECUTE_TRANSACTION:
+       final ClientTransaction transaction = (ClientTransaction) msg.obj;
+       mTransactionExecutor.execute(transaction);
+     }
 }
 ```
 
@@ -937,7 +982,7 @@ android.app.servertransaction.LaunchActivityItem
 
 
 
-##### ActivityThread.performLaunchActivity()
+##### ActivityThread.handleLaunchActivity()
 
 上面代码中，client的实现类是``ActivityThread``，``ActivityThread.handleLaunchActivity()``的主要实现逻辑在``ActivityThread.performLaunchActivity()``：
 
@@ -981,7 +1026,7 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
         } ...
 
         try {
-            // 初始化Application和Context，并将Context attach到Application。内部会执行我们非常熟悉的Application的attachBaseContext()、onCreate()
+            // 初始化Application和Context，并将Context attach到Application。内部会执行我们非常熟悉的Application的attachBaseContext()、onCreate()方法
             Application app = r.packageInfo.makeApplication(false, mInstrumentation);
 
             ...

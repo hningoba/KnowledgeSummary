@@ -1,13 +1,13 @@
 ---
 title: Matrix概览
 categories: 技术
-
-
 ---
 
-Matrix是WeChat研发的一款APM工具，可以对应用安装包大小，帧率变化，启动耗时，卡顿，慢方法，SQLite 操作优化，文件读写，内存泄漏等等做检测。该库的主要贡献者同时也是[《Android开发高手课》](https://time.geekbang.org/column/intro/100021101)的作者，对APP性能感兴趣的同学也可以深入看看该课程。
+Matrix是WeChat研发的一款APM工具，可以对应用安装包大小，帧率变化，启动耗时，卡顿，慢方法，SQLite 操作优化，文件读写，内存泄漏等等做检测。该库的主要贡献者同时也是[《Android开发高手课》](https://time.geekbang.org/column/intro/100021101)的作者，这个课程对APP性能涉及到的技术讲的比较广泛也很有深度，可以作为性能优化的理论指导课，建议对性能优化感兴趣的同学也深入学习下该课程。
 
 <!--more-->
+
+笔者近期在组里承担了一些性能优化的工作，写Matrix的分析文章目的其实是为了从原理层面了解业界对各种性能指标的检测方法，从而更系统的学习性能优化这部分知识。
 
 Matrix-android 当前包含五块内容：
 
@@ -108,7 +108,11 @@ Trace Canary主要特效如下：
 
 
 
-## 参考
+其他模块后续补充中。
+
+
+
+### 参考
 
 [Matrix](https://github.com/Tencent/matrix)
 

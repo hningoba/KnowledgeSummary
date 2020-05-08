@@ -1,7 +1,6 @@
 ---
-title: Matrix-TraceCanary实现分析
+title: Matrix - TraceCanary源码分析
 categories: 技术
-
 ---
 
 本文主要介绍Matrix的Trace部分，主要涉及帧率、ANR、慢函数、启动耗时的检测逻辑。
@@ -10,7 +9,7 @@ categories: 技术
 
 ### Trace Canary主要特性
 
-回顾下Trace Canary主要特性：
+Trace Canary主要特性：
 
 - 编译期动态修改字节码, 高性能记录执行耗时与调用堆栈
 - 准确的定位到发生卡顿的函数，提供执行堆栈、执行耗时、执行次数等信息，帮助快速解决卡顿问题
@@ -18,17 +17,16 @@ categories: 技术
 
 
 
-看下Tracer模块的类继承关系：
+Tracer模块主要结构：
 
-```
-- Tracer
- - FrameTracer
- - AnrTracer
- - EvilMethodTracer
- - StratupTracer
-```
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix-tracer.png" style="zoom:85%;" />
 
-通过类名就能看出来每个类的大体功能，下面逐个介绍。
+其中：
+
+* FrameTracer负责帧率检测
+* AnrTracer负责ANR问题检测
+* EvilMethodTracer负责检测慢函数
+* StartupTracer负责应用启动耗时检测
 
 
 
@@ -36,9 +34,9 @@ categories: 技术
 
 FrameTracer部分主要做帧率、掉帧、帧耗时等检测，具体实现逻辑在FrameTracer和UIThreadMonitor。
 
-Demo中是在TestFpsActivity做的演示，onCreate()中通过FrameTracer.onStartTrace()开启检测，页面退出时通过FrameTracer.onCloseTrace()结束检测，并移除监控回调。
+Demo中的入口在TestFpsActivity，onCreate()中通过FrameTracer.onStartTrace()开启检测，页面退出时通过FrameTracer.onCloseTrace()结束检测，并移除监控回调。
 
-我们按照调用栈倒序的逻辑，从使用侧开始，看看具体帧率计算逻辑。
+从使用侧开始，看看帧率的计算逻辑。
 
 ##### TestFpsActivity：
 
@@ -47,21 +45,21 @@ sample.tencent.matrix.trace.TestFpsActivity
 
 protected void onCreate(@Nullable Bundle savedInstanceState) {
 	// 启动帧率检测，使用FrameTrace计算FPS
-	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().onStartTrace();			
-// 帧率回调	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().addListener(mDoFrameListener);
+	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().onStartTrace();
+	// 添加帧率回调
+	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().addListener(mDoFrameListener);
 }
 
 protected void onDestroy() {
 	super.onDestroy();
-// 移除帧率回调	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().removeListener(mDoFrameListener);
-// 关闭帧率检测
+	// 移除帧率回调
+	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().removeListener(mDoFrameListener);
+	// 关闭帧率检测
 	Matrix.with().getPluginByClass(TracePlugin.class).getFrameTracer().onCloseTrace();
 }
 ```
 
-看下TestFpsActivity的FPS监控回调，代码如下。另外提一下，FrameTracer支持将回调方法IDoFrameListener.doFrameAsync()放到异步线程，前提是外部需要传入一个Executor。
-
-##### IDoFrameListener.doFrameAsync()：
+看下TestFpsActivity的FPS监控回调部分：
 
 ```
 sample.tencent.matrix.trace.TestFpsActivity
@@ -75,7 +73,7 @@ private IDoFrameListener mDoFrameListener = new IDoFrameListener(new Executor() 
 
         @Override
         public void execute(Runnable command) {
-        	//将回调放到异步线程执行
+            //将回调方法放到异步线程执行
             handler.post(command);
         }
     }) {
@@ -88,17 +86,23 @@ private IDoFrameListener mDoFrameListener = new IDoFrameListener(new Executor() 
     };
 ```
 
+回调接口``IDoFrameListener``支持将同步和异步回调方法：doFrameSync()和doFrameAsync，需要使用侧传入一个Executor。
+
 解释下IDoFrameListener.doFrameAsync()的参数含义：
 
-* visibleScene：场景名称，默认是Activity的类名。这块代码是在Matrix初始化时，通过AppActiveMatrixDelegate.controller监听Activity生命周期，即registerActivityLifecycleCallbacks()。当Activity start时，将activity.getClass().getName()做为visibleScene。FrameTracer再通过AppMethodBeat.getVisibleScene()获取visibleScene。
+* visibleScene：场景名称，默认是Activity的类名
 * taskCost：主线程每一帧耗时
 * frameCostMs：帧率检测时用不到
 * droppedFrames：掉帧数
 * isContainsFrame：是否包含一帧
 
+这里提一下visibleScene的获取逻辑：Matrix初始化时，``AppActiveMatrixDelegate.controller()``内部通过``Application. registerActivityLifecycleCallbacks()``监听Activity生命周期。当Activity start时，将``activity.getClass().getName()``做为visibleScene。FrameTracer再通过``AppMethodBeat.getVisibleScene()``获取visibleScene。
+
+继续看下回调方法``doFrameAsync()``的上游逻辑。
+
 ##### FrameTracer.notifyListener()：
 
-上面doFrameAsync()是在FrameTracer.notifyListener()中执行的，代码在下面。
+``IDoFrameListener.doFrameAsync()``是在``FrameTracer.notifyListener()``中调用的：
 
 ```
 com.tencent.matrix.trace.tracer.FrameTracer
@@ -137,7 +141,12 @@ com.tencent.matrix.trace.tracer.FrameTracer
     }
 ```
 
-可以看出dropFrame就是taskCostMs/frameIntervalMs。其中，frameIntervalMs默认是17ms，计算逻辑是Choreographer.mFrameIntervalNanos（屏幕刷新时间间隔，默认16ms）+1，计算代码如下：
+从上面代码可以看出掉帧数dropFrame就是``taskCostMs/frameIntervalMs``。
+
+* taskCostMs：一帧的执行耗时
+* frameIntervalMs：默认是17ms，计算逻辑是Choreographer.mFrameIntervalNanos+1。
+
+其中，Choreographer.mFrameIntervalNanos是屏幕刷新时间间隔，默认16ms。计算代码如下：
 
 ```
 com.tencent.matrix.trace.tracer.FrameTracer
@@ -149,13 +158,16 @@ this.frameIntervalMs = TimeUnit.MILLISECONDS.convert(UIThreadMonitor.getMonitor(
 com.tencent.matrix.trace.core.UIThreadMonitor
 
 choreographer = Choreographer.getInstance();
+
 // 通过反射获取Choreographer的mFrameIntervalNanos字段，默认是16ms
 frameIntervalNanos = reflectObject(choreographer, "mFrameIntervalNanos");
 ```
 
-##### FrameTracer.doFrame():
+上面计算掉帧的方式：taskCostMs/17，其实并不是非常严谨，比如taskCostMs=33时，应该丢了两帧，但是计算结果是1。
 
-FrameTracer.notifyListener()调用过程是UIThreadMonitor.dispatchEnd() -> FrameTracer.doFrame() -> FrameTracer.notifyListener()。
+上面提到的``FrameTracer.notifyListener()``由``FrameTracer.doFrame()``触发，看下``FrameTracer.doFrame()``：
+
+##### FrameTracer.doFrame():
 
 ```
 com.tencent.matrix.trace.tracer.FrameTracer
@@ -163,34 +175,34 @@ com.tencent.matrix.trace.tracer.FrameTracer
 @Override
     public void doFrame(String focusedActivityName, long start, long end, long frameCostMs, long inputCostNs, long animationCostNs, long traversalCostNs) {
         if (isForeground()) {
-        	// IDoFrameListener.doFrameAsync()中的参数taskCostMs即为end - start。
+            // IDoFrameListener.doFrameAsync()中的参数taskCostMs即为end - start。
             notifyListener(focusedActivityName, end - start, frameCostMs, frameCostMs >= 0);
         }
     }
 ```
 
-##### UIThreadMonitor.dispatchEnd()
+这个方法没有做太多事情，主要是计算掉帧数用的``taskCostMs``是``end - start``的结果。
 
-看下UIThreadMonitor.dispatchEnd()：
+``FrameTracer.doFrame()``由``UIThreadMonitor.dispatchEnd()``触发，看下后者的实现。
+
+##### UIThreadMonitor.dispatchEnd()
 
 ```
 com.tencent.matrix.trace.core.UIThreadMonitor
 
     private void dispatchEnd() {
-
         if (isBelongFrame) {
             doFrameEnd(token);
         }
 
-        // 每一帧的开始时间，在dispatchBegin()中赋值
+        // 对应每一帧的开始时间，在dispatchBegin()中赋值
         long start = token;
-        // 当前时间，即每一帧的结束时间
+        // 对应每一帧的结束时间
         long end = SystemClock.uptimeMillis();
 
         synchronized (observers) {
             for (LooperObserver observer : observers) {
                 if (observer.isDispatchBegin()) {
-                	// AppMethodBeat.getVisibleScene()获取visibleScene
                 	// isBelongFrame ? end - start : 0 - frameCost, 如果是帧耗时计算，则frameCost为0，否则和taskCost一样
                 	// queueCost数组，存储对应Choreographer中三类task(input/animation/traversal)的耗时
                     observer.doFrame(AppMethodBeat.getVisibleScene(), token, SystemClock.uptimeMillis(), isBelongFrame ? end - start : 0, queueCost[CALLBACK_INPUT], queueCost[CALLBACK_ANIMATION], queueCost[CALLBACK_TRAVERSAL]);
@@ -215,16 +227,27 @@ com.tencent.matrix.trace.core.UIThreadMonitor
     }
 ```
 
-解释下LooperObserver.dispatchEnd()方法中的几个参数的含义，后面都会用到。解释dispatchEnd()之前，看下UIThreadMonitor.dispatchBegin()的逻辑：
+这部分内容主要做了这几件事情：
+
+* 获取每一帧耗时的开始、结束时间戳，即start、end，将差值通过observer.doFrame()传给消费方
+* 执行observer.doFrame()，该方法主要消费方是AnrTracer、EvilMethodTracer、FrameTracer
+* 赋值dispatchTimeMs[1]，dispatchTimeMs[3]，其中dispatchTimeMs数组含义后面会提到
+* 执行observer.dispatchEnd()，该方法主要消费方是AnrTracer、EvilMethodTracer
+
+
+
+看完了UIThreadMonitor.dispatchEnd()，再看下UIThreadMonitor.dispatchBegin()：
 
 ```
 com.tencent.matrix.trace.core.UIThreadMonitor
 
 private void dispatchBegin() {
+        // 对dispatchTimeMs[0]、dispatchTimeMs[2]赋值
         token = dispatchTimeMs[0] = SystemClock.uptimeMillis();
         dispatchTimeMs[2] = SystemClock.currentThreadTimeMillis();
         AppMethodBeat.i(AppMethodBeat.METHOD_ID_DISPATCH);
 
+        //每一帧开始执行时的回调
         synchronized (observers) {
             for (LooperObserver observer : observers) {
                 if (!observer.isDispatchBegin()) {
@@ -235,9 +258,16 @@ private void dispatchBegin() {
     }
 ```
 
-主要是对token、dispatchTimeMs[0]、dispatchTimeMs[2]赋值。其中，前两个是uptimeMillis，dispatchTimeMs[2]赋值当前线程的活动（线程处于running状态）时间点。
+这里简单说下``SystemClock.uptimeMillis()``和``SystemClock.currentThreadTimeMillis()``的区别，详细内容可以看[官方文档](https://developer.android.com/reference/android/os/SystemClock.html)：
 
-看下LooperObserver.dispatchEnd()：
+* SystemClock.uptimeMillis()：记录从开机到现在的时长，系统深睡眠（CPU睡眠、黑屏、系统等待外部输入对其唤醒）的时间不算在内，且不受系统设置时间调整的影响。是大多数时间间隔计算方法的基础，比如Thread.sleep(long)、Object.wait(long)、System.nanoTime()
+* SystemClock.currentThreadTimeMillis()：这个比较容易理解，当前线程的活动时长（线程处于running状态）
+
+
+
+##### LooperObserver.dispatchEnd()
+
+解释下LooperObserver.dispatchEnd()的参数含义，后续对理解AnrTracer、EvilMethodTracer的实现有帮助：
 
 ```
 com.tencent.matrix.trace.listeners.LooperObserver
@@ -245,16 +275,16 @@ com.tencent.matrix.trace.listeners.LooperObserver
 public void dispatchEnd(long beginMs, long cpuBeginMs, long endMs, long cpuEndMs, long token, boolean isBelongFrame)
 ```
 
-* beginMs：主线程一帧方法开始执行时间点，即dispatchTimeMs[0]，在UIThreadMonitor.dispatchBegin()中赋值
-* cpuBeginMs：当前线程活动期间，方法开始执行时间点
-* endMs：主线程一帧方法结束执行时间点，即dispatchTimeMs[2]，在UIThreadMonitor.dispatchEnd()中赋值。所以，一帧耗时就是endMs-beginMs。
-* cpuEndMs：当前线程活动期间，方法解释执行时间点
+* beginMs：主线程一帧任务的开始时间点，对应dispatchTimeMs[0]，在UIThreadMonitor.dispatchBegin()中赋值
+* cpuBeginMs：当前线程活动期间，方法开始执行时间点，对应dispatchTimeMs[2]
+* endMs：主线程一帧方法结束执行时间点，对应dispatchTimeMs[1]，在UIThreadMonitor.dispatchEnd()中赋值。所以，一帧耗时就是endMs-beginMs。
+* cpuEndMs：当前线程活动期间，方法解释执行时间点，对应dispatchTimeMs[3]
 * token：等同于beginMs
 * isBelongFrame：可简单理解为是否属于主线程任务。在Choreographer处理input任务时执行UIThreadMonitor.run()，内部将isBelongFrame置为true，这块逻辑可以看下UIThreadMonitor.onStart()
 
 
 
-那么UIThreadMonitor.dispatchEnd()是谁执行的呢？从下面代码可以看出，UIThreadMonitor向LooperMonitor注册了监听器，用于监听每一帧的开始和结束。
+上面提到，一帧任务执行结束时会执行``UIThreadMonitor.dispatchEnd()``，该方法在``LooperMonitor``注册的监听器中执行的。看下这块逻辑：
 
 ```
 com.tencent.matrix.trace.core.UIThreadMonitor
@@ -280,7 +310,9 @@ LooperMonitor.register(new LooperMonitor.LooperDispatchListener() {
         });
 ```
 
-其中，LooperDispatchListener的dispatchStart()和dispatchEnd()都是LooperMonitor.dispatch()执行的。由isBegin决定执行dispatchStart()还是dispatchEnd()。
+UIThreadMonitor向LooperMonitor注册了监听器，用于监听每一帧的开始和结束。
+
+其中，LooperDispatchListener的dispatchStart()和dispatchEnd()都是LooperMonitor.dispatch()执行的。由isBegin决定执行dispatchStart()还是dispatchEnd()。看下``LooperMonitor.dispatch()``：
 
 ##### LooperMonitor.dispatch():
 
@@ -292,10 +324,12 @@ private void dispatch(boolean isBegin, String log) {
             if (listener.isValid()) {
                 if (isBegin) {
                     if (!listener.isHasDispatchStart) {
+                        // 内部回调dispatchStart()
                         listener.onDispatchStart(log);
                     }
                 } else {
                     if (listener.isHasDispatchStart) {
+                        // 内部回调dispatchEnd()
                         listener.onDispatchEnd(log);
                     }
                 }
@@ -307,7 +341,7 @@ private void dispatch(boolean isBegin, String log) {
     }
 ```
 
-isBegin的逻辑看下下面代码，主要是根据参数x内容，判断是开始还是结束，即isBegin。
+isBegin的逻辑看下面代码：
 
 ##### LooperMonitor.LooperPrinter:
 
@@ -330,6 +364,7 @@ class LooperPrinter implements Printer {
             }
 
             if (isValid) {
+                // x.charAt(0) == '>'时，isBegin为true
                 dispatch(x.charAt(0) == '>', x);
             }
 
@@ -337,17 +372,27 @@ class LooperPrinter implements Printer {
     }
 ```
 
-在LooperMonitor初始化时，会向main looper注册一个LooperPrinter。
+即，入参字符串``x``以``>``开头时，isBegin为true。
+
+上面逻辑是自定义LooperPrinter的实现方法。在LooperMonitor初始化时，会向main looper注册一个LooperPrinter：
 
 ```
-looper = Looper.getMainLooper()
+com.tencent.matrix.trace.core.LooperMonitor
 
-looper.setMessageLogging(printer = new LooperPrinter(originPrinter));
+public class LooperMonitor {
+	private LooperPrinter printer;
+	//主线程looper
+	looper = Looper.getMainLooper()
+
+	// 将前面提到的自定义LooperPrinter塞给主线程looper
+	looper.setMessageLogging(printer = new LooperPrinter(originPrinter));
+}
+
 ```
 
-##### Looper.loop():
+上面代码主要是把自定义LooperPrinter塞给主线程looper。对Looper比较熟悉的同学其实已经有眉目了，我们回顾下looper的逻辑：
 
-看到这里有些同学应该眼前一亮，很多APM计算帧率都采用了这个逻辑，我在[Android图形渲染之Choreographer原理](https://hningoba.github.io/2019/11/28/Android Choreographer原理/) 最后也提到使用“Looper & Printer”计算帧率，再看下Looper中的代码：
+##### Looper.loop()
 
 ```
 android.os.Looper.java
@@ -372,51 +417,53 @@ public static void loop() {
             // logging对象外部自定义，传入一个自定义Printer实现每一帧的监听计算
             final Printer logging = me.mLogging;
             if (logging != null) {
-            		// 每一帧开始时打印的log
+                // 每一帧开始时打印的log
                 logging.println(">>>>> Dispatching to " + msg.target + " " +
                         msg.callback + ": " + msg.what);
             }
-
             ...
-            
             try {
             		// 消息执行
-                msg.target.dispatchMessage(msg);
+            		msg.target.dispatchMessage(msg);
                 dispatchEnd = needEndTime ? SystemClock.uptimeMillis() : 0;
             } finally {
                 if (traceTag != 0) {
                     Trace.traceEnd(traceTag);
                 }
             }
-            
             ...
-
             if (logging != null) {
             		// 每一帧结束时打印的log
-                logging.println("<<<<< Finished to " + msg.target + " " + msg.callback);
+            		logging.println("<<<<< Finished to " + msg.target + " " + msg.callback);
             }
-
             ...
         }
     }
 ```
 
-主线程（main looper）每一帧执行(dispatchMessage())开始和结束时，Looper通过一个Printer对象分别打印”>>>>> Dispatching to…”和”<<<<< Finished to”。通过Looper.setMessageLogging()设置我们自定义的Printer，通过监听主线程方法执行前后的两个日志字符串，就可以计算一帧的耗时。
+很多APM计算帧率都采用了这个逻辑，我在[Android图形渲染之Choreographer原理](https://hningoba.github.io/2019/11/28/Android Choreographer原理/) 最后也提到使用“Looper & Printer”计算帧率。
 
-##### 整体代码执行过程：
+Looper在每个消息消费前后``msg.target.dispatchMessage(msg)``，会通过一个Printer对象分别打印``>>>>> Dispatching to…``和``<<<<< Finished to``两个日志。通过Looper.setMessageLogging()可以设置我们自定义的Printer，通过监听主线程方法执行前后的两个日志字符串，就可以计算一帧的耗时。
 
-```
-- LooperMonitor.LooperPrinter.println()
-- LooperMonitor.dispatch()
-- UIThreadMonitor.dispatchBegin()/dispatchEnd()
-- FrameTracer.doFrame()
-- FrameTracer.notifyListener()
-- TestFpsActivity.IDoFrameListener.doFrameSync()/doFrameAsync()
-```
+前面LooperMonitor中就通过Looper.setMessageLogging()将自定义的Printer传给了Looper，所以可以拦截每个消息执行前后的日志。
+
+到这里，每一帧的监听、掉帧逻辑及帧率计算方式就讲完了。
 
 ##### 总结：
 
-* 帧率检测使用“Looper & Printer”方式，Printer的日志字符串对应主线程每一帧方法执行的开始和结束，进而计算每一帧耗时。
+回顾下整体代码的执行过程：
+
+```
+- Looper.loop()		//主线程消息执行也是looper机制
+- LooperMonitor.LooperPrinter.println()		//消息执行前后会打印两个日志
+- LooperMonitor.dispatch()	//拦截到两个日志后进行分发
+- UIThreadMonitor.dispatchBegin()/dispatchEnd()	//记录相关时间节点，分发每一帧执行前后的回调方法
+- FrameTracer.doFrame()
+- FrameTracer.notifyListener()
+- TestFpsActivity.IDoFrameListener.doFrameSync()/doFrameAsync()	//业务侧获取帧率回调
+```
+
+总体来说，帧率检测使用了“Looper & Printer”方式。Printer的日志字符串对应主线程每一帧方法执行的开始和结束，通过给主线程Looper设置自定义Printer，即可拦截日志。根据日志内容即可得知每一帧执行的前后节点，进而记录每一帧的开始、结束时间戳，从而可以计算每一帧的耗时、帧率、掉帧等核心指标。
 
 
 
@@ -424,7 +471,7 @@ public static void loop() {
 
 ANR检测主要代码在AnrTracer。在demo中，TestTraceMainActivity.testANR()内部执行耗时改大一点（大于5000ms），比如改到7800，就能看到AS中输出如下ANR警告log：
 
-<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_anr_log.png" width="80%" />
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_anr_log.png" style="zoom:70%;" />
 
 看下AnrTracer如何统计ANR，收集上述log信息的。主要代码在AnrTracer：
 
@@ -559,7 +606,7 @@ public void run() {
 
 像ANR检测部分提到的，将TestTraceMainActivity.testANR()实现耗时改成7800，AS会输出如下慢函数log。从log中可以看出发生了Jankiness，方法耗时7804ms，和我们的修改基本吻合。
 
-<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_evil_mthod_log.png" width="80%" />
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_evil_mthod_log.png" style="zoom:75%;" />
 
 下面看下慢函数的实现逻辑，主要代码在EvilMethodTracer。
 
@@ -649,15 +696,13 @@ private class AnalyseTask implements Runnable {
     }
 ```
 
-##### 总结：
-
-AnalyseTask的逻辑和AnrTask类似，只是log中的部分内容不一样，就不具体展开了。
+其中，AnalyseTask的逻辑和AnrTask类似，只是log中的部分内容不一样，就不具体展开了。
 
 
 
 ### 启动耗时检测
 
-##### 三种启动方式：
+##### App三种启动方式：
 
 [官方](https://developer.android.com/topic/performance/vitals/launch-time)定义了三种启动方式：
 
@@ -671,42 +716,225 @@ AnalyseTask的逻辑和AnrTask类似，只是log中的部分内容不一样，�
 
 
 
-##### 冷启动分析
+##### 冷启动关键节点：
 
-我们这里只对冷启动做分析，冷启动Demo后，可以看到如下log：
+三种启动方式中，我们这里只对冷启动做分析。启动Demo后，可以看到如下log：
 
 ```
 Matrix.StartupTracer: [report] applicationCost:42 firstScreenCost:244 allCost:2306 isWarmStartUp:false
 ```
 
-显示非热启动（即冷启动），Application耗时42ms，首屏耗时244ms，总耗时2306ms。通过log可以知道是StartupTracer做的上报。
+log显示冷启动(isWarmStartUp:false)，Application初始化耗时42ms，首屏耗时244ms，总耗时2306ms。通过log可以知道是StartupTracer做的上报。
 
-计算应用的启动耗时，就需要知道Application的启动开始、启动完成时间点，launch Activity的启动开始、启动完成时间点。通过下图StartupTracer的类注释，可以大概了解如下几个字段的含义和对应的耗时区间：
+看下StartupTracer这个类，类的注释如下：
 
 <img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_StartupTracer_field_annotation.png" />
 
 简单解释下上图中几个关键统计点：
 
 * Application初始化耗时(applicationCost)：
-  * 指Application的初始化耗时。
-  * 起始点对应Application.onCreate()，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段标记，该字段在ActivityThreadHacker.hackSysHandlerCallback()赋值。
-  * 结束点对应handle launch activity message的时间点（通过hook ActivityThread的mH.mCallback实现拦截主线程message），由``ActivityThreadHacker.sApplicationCreateEndTime``字段标记，该字段在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
+  * 起始点对应``Application.onCreate()``，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段记录起始点时间戳，该字段在``ActivityThreadHacker.hackSysHandlerCallback()``赋值。
+  * 结束点比较有意思，matrix是通过hook ActivityThread的mH.mCallback实现拦截主线程message，Application和Activity的初始化任务都是通过主线程Handler机制调度的。当接收到launch activity调度message时认为Application初始化完成，以此作为结束点。结束点由``ActivityThreadHacker.sApplicationCreateEndTime``字段记录其时间戳，该字段在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
 * 首屏耗时(firstScreenCost)：
-  * 指app启动到第一个Activity(launch activity)初始化完成的耗时，粗略包含applicationCost + launchActivity初始化耗时。
-  * 起始点和applicationCost的起始点一样，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段标记。
-  * 结束点对应开屏页的onWindowFocusChange()（但是代码跟踪显示是IssueListActivity.onWindowFocusChange()），在StartupTracer.onActivityFocused()中标记。
+  * 指app启动到第一个Activity(launch activity)初始化完成的耗时，可以认为包含了applicationCost + launchActivity初始化耗时。
+  * 起始点和applicationCost的起始点一样，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段其时间戳。
+  * 结束点对应launchActivity的onWindowFocusChange()，在StartupTracer.onActivityFocused()中标记。
 * 冷启动耗时(coldCost)
-  * app启动到第一个对用户有意义的Activity（对应图中的careActivity）初始化完成耗时。应用一般将闪屏页即launch activity仅作为logo展示、应用初始化的工作，其后的第一个Activity做为主页Activity，这个Activity就是careActivity，所以把careActivity的初始化完成做为coldCost的结束点。
+  * app启动到第一个对用户有意义的Activity（对应图中的careActivity）初始化完成耗时。
+  * 应用一般仅在闪屏页即launch activity做logo展示、应用初始化的工作，其后的第一个Activity做为主页Activity，这个Activity就是careActivity。所以把careActivity的初始化完成做为coldCost的结束点。
 * 温启动耗时(warmCost)
-  * 因为Application不会重新初始化，只统计Activity的初始化耗时。
-  * 起始点是launch Activity初始化的开始点。
-  * 结束点是launch Activity onWindfocusChanged()执行点。
+  * 因为Application不会重新初始化，所以只统计Activity的初始化耗时。
+  * 起始点是launchActivity初始化的开始点。
+  * 结束点是launchActivity onWindfocusChanged()执行点。
+
+上面解释了几个耗时节点的概念，接下来分别看看具体的实现逻辑。
+
+
+
+##### Application初始化耗时：
+
+前面讲到，Application初始化耗时的获取方式是``ActivityThreadHacker.getApplicationCost()``：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+public static long getApplicationCost() {
+        return ActivityThreadHacker.sApplicationCreateEndTime - ActivityThreadHacker.sApplicationCreateBeginTime;
+    }
+```
+
+其实就是``sApplicationCreateEndTime``和``sApplicationCreateBeginTime``的差值。
+
+其中，``sApplicationCreateBeginTime``在``ActivityThreadHacker.hackSysHandlerCallback()``中赋值：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+public static void hackSysHandlerCallback() {
+        ...
+        sApplicationCreateBeginTime = SystemClock.uptimeMillis();
+        ...
+}
+```
+
+那么，``ActivityThreadHacker.hackSysHandlerCallback()``什么时机执行呢？
+
+在方法内部打个断点，冷启动APP后，可看到方法调用栈如下图：
+
+<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_ActivityThreadHacker_method_trace.png" alt="matrix_ActivityThreadHacker_method_trace" style="zoom:85%;" />
+
+从上图方法调用栈可以看到，``MatrixApplication.onCreate()``调用``AppMethodBeat.i()``（插桩实现），后续执行``ActivityThreadHacker.hackSysHandlerCallback()``，所以``sApplicationCreateBeginTime``在``Application.onCreate()``执行后即刻被赋值。符合前面解释``applicationCost``概念时提到的起始点对应``Application.onCreate()``。
+
+``sApplicationCreateEndTime``在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
+
+下面看下``ActivityThreadHacker``相关逻辑。
+
+在讲````ActivityThreadHacker.HackCallback.handleMessage()``前先了解下``ActivityThreadHacker``这个类。先看下``hackSysHandlerCallback()``，也就是``Application.onCreate()``后很快执行的方法：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+public static void hackSysHandlerCallback() {
+        try {
+            // application初始化耗时过程起始点
+            sApplicationCreateBeginTime = SystemClock.uptimeMillis();
+            sApplicationCreateBeginMethodIndex = AppMethodBeat.getInstance().maskIndex("ApplicationCreateBeginMethodIndex");
+            
+            // step1. 通过反射获取ActivityThread.sCurrentActivityThread对象
+            Class<?> forName = Class.forName("android.app.ActivityThread");
+            Field field = forName.getDeclaredField("sCurrentActivityThread");
+            field.setAccessible(true);
+            Object activityThreadValue = field.get(forName);
+            
+            // step2. 通过反射获取sCurrentActivityThread的mH对象
+            Field mH = forName.getDeclaredField("mH");
+            mH.setAccessible(true);
+            Object handler = mH.get(activityThreadValue);
+            
+            // step3. 将mH中的mCallback设置成HackCallback，拦截主线程消息
+            Class<?> handlerClass = handler.getClass().getSuperclass();
+            Field callbackField = handlerClass.getDeclaredField("mCallback");
+            callbackField.setAccessible(true);
+            Handler.Callback originalCallback = (Handler.Callback) callbackField.get(handler);
+            HackCallback callback = new HackCallback(originalCallback);
+            callbackField.set(handler, callback);
+        } catch (Exception e) {
+            MatrixLog.e(TAG, "hook system handler err! %s", e.getCause().toString());
+        }
+    }
+```
+
+上面这部分代码，除了记录Application的初始化开始节点，还通过反射，将``ActivityThreadHacker.HackCallback``实例设置成主线程``Handler的mCallback``。这样，就可以拦截主线程消息做一些工作。
+
+对``ActivityThread``、应用启动流程不熟悉的同学可以看看这篇文章：[Android应用启动流程分析](https://hningoba.github.io/2020/04/26/Android应用启动流程分析/)。
+
+看下``ActivityThreadHacker.HackCallback``拦截主线程消息做了哪些工作：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+private final static class HackCallback implements Handler.Callback {
+        private static final int LAUNCH_ACTIVITY = 100;
+        private static final int CREATE_SERVICE = 114;
+        private static final int RECEIVER = 113;
+        public static final int EXECUTE_TRANSACTION = 159; // for Android 9.0
+        private static boolean isCreated = false;
+        private static int hasPrint = 10;
+
+        ...
+
+        @Override
+        public boolean handleMessage(Message msg) {
+            ...
+            // 是否启动页Activity，实现逻辑后面会讲到
+            boolean isLaunchActivity = isLaunchActivity(msg);
+            // 记录启动页Activity结束时间点
+            if (isLaunchActivity) {
+                ActivityThreadHacker.sLastLaunchActivityTime = SystemClock.uptimeMillis();
+                ActivityThreadHacker.sLastLaunchActivityMethodIndex = AppMethodBeat.getInstance().maskIndex("LastLaunchActivityMethodIndex");
+            }
+
+            if (!isCreated) {
+                // 当前message是启动页Activity时，认为Application初始化完成
+                if (isLaunchActivity || msg.what == CREATE_SERVICE || msg.what == RECEIVER) {
+                    ActivityThreadHacker.sApplicationCreateEndTime = SystemClock.uptimeMillis();
+                    ActivityThreadHacker.sApplicationCreateScene = msg.what;
+                    isCreated = true;
+                }
+            }
+
+            return null != mOriginalCallback && mOriginalCallback.handleMessage(msg);
+        }
+}
+```
+
+上面代码主要意思是，当ActivityThread.HackCallback收到launch activity的初始化message时，记录Application的初始化结束点时间戳。关于判断一个Activity是否是launch activity后面会讲到。
+
+**总结：**
+
+* Application初始化过程的起始点对应``Application.onCreate()``
+* 结束点是接收到launch activity初始化消息的时刻
+
+
+
+##### Launch Activity初始化耗时：
+
+接下来看下启动页Activity的耗时计算逻辑。
+
+ActivityThreadHacker中有个方法是获取launch activity的启动时间点：
+
+```
+public static long getLastLaunchActivityTime() {
+        return ActivityThreadHacker.sLastLaunchActivityTime;
+    }
+```
+
+从《Application初始化耗时》部分，``ActivityThreadHacker.HackCallback.handleMessage()``中可以看到，接收到launch activity的消息时，对``ActivityThreadHacker.sLastLaunchActivityTime``赋值。
+
+那怎么判断一个消息是launch activity的消息呢？看下面代码：
+
+```
+com.tencent.matrix.trace.hacker.ActivityThreadHacker
+
+private boolean isLaunchActivity(Message msg) {
+    // 区分版本，9.0及以上检测ClientTransaction
+    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) {
+        if (msg.what == EXECUTE_TRANSACTION && msg.obj != null) {
+            try {
+                if (null == method) {
+                    Class clazz = Class.forName("android.app.servertransaction.ClientTransaction");
+                    method = clazz.getDeclaredMethod("getCallbacks");
+                    method.setAccessible(true);
+                }
+                List list = (List) method.invoke(msg.obj);
+                if (!list.isEmpty()) {
+                    return list.get(0).getClass().getName().endsWith(".LaunchActivityItem");
+                }
+            } catch (Exception e) {
+                MatrixLog.e(TAG, "[isLaunchActivity] %s", e);
+            }
+        }
+        return msg.what == LAUNCH_ACTIVITY;
+    } else {
+        // 9.0以下版本
+        return msg.what == LAUNCH_ACTIVITY;
+    }
+}
+```
+
+在[Android应用启动流程分析](https://hningoba.github.io/2020/04/26/Android应用启动流程分析/)这篇文章中我们提到过，Android9.0引入了ClientTransaction辅助管理应用和页面的生命周期。Application初始化时，AMS通过ActivityThread.ApplicationThread向ActivityThread.mH发送一个what为EXECUTE_TRANSACTION，obj为ClientTransaction的消息，且该消息中的ClientTransaction带有一个LaunchActivityItem的Callback。
+
+所以上面``isLaunchActivity()``就是通过这个思路检测launch activity的，发现符合条件的主线程消息，且消息的第一个callback类名以LaunchActivityItem为结尾，即认为发起launch activity初始化流程。
 
 
 
 ##### StartupTracer：
 
-前面讲到启动耗时统计逻辑在StartupTracer。看下StartupTracer.onActivityFocused()，该方法在Activity.onWindfocusChanged()内部执行，这部分通过插桩实现。
+上面分别讲了应用冷启动各个阶段的耗时统计逻辑，在文章开头处我们提到StartupTracer负责应用启动耗时检测，接下来看看StartupTracer主要做了哪些事情。
+
+看下StartupTracer的主要方法onActivityFocused()，该方法在Activity.onWindfocusChanged()中被调用。这个调用是通过插桩实现的，关于Matrix的插桩内容也比较有意思，后面单独文章来介绍。
+
+``Activity.onWindfocusChanged()``被执行，就认为页面已经展现在用户面前，通常做为页面初始化过程的结束点。
 
 ```
 com.tencent.matrix.trace.tracer.StartupTracer
@@ -728,7 +956,6 @@ com.tencent.matrix.trace.tracer.StartupTracer
                 if (splashActivities.contains(activity)) {
                     hasShowSplashActivity = true;
                 } else if (splashActivities.isEmpty()) {
-                    MatrixLog.i(TAG, "default splash activity[%s]", activity);
                     coldCost = firstScreenCost;
                 } else {
                     ...
@@ -750,246 +977,19 @@ com.tencent.matrix.trace.tracer.StartupTracer
 再解释下上面部分代码：
 
 * isColdStartup()：coldCost为0时即为冷启动。
-* coldCost：闪屏页初始化后，其之后的第一个Activity(careActivity)的onWindfocusChanged()执行时，计算冷启动耗时。
-* applicationCost应用耗时：即ActivityThreadHacker.getApplicationCost()，起始点、结束点计算逻辑后面再展开。
-* ActivityThreadHacker.getEggBrokenTime()：Application初始化的开始点。
-* splashActivities：保持闪屏页列表，在TraceConfig中初始化。demo中是在MatrixApplication.onCraete()手动配置splash Activity。
+* firstScreenCost：应用启动到闪屏页Activity.onWindfocusChanged()执行的时长
+* coldCost：闪屏页初始化后，其之后的第一个Activity(careActivity).onWindfocusChanged()执行时，计算冷启动耗时。本质上用户看到了第二个Activity，比firstScreenCost多了闪屏页展现时间+careActivity的初始化耗时。
+* applicationCost：Application初始化耗时
+* ActivityThreadHacker.getEggBrokenTime()：应用冷启动开始节点
+* splashActivities：保存闪屏页列表，在TraceConfig中初始化。demo中是在MatrixApplication.onCraete()手动配置splash Activity。
 
 有了上面这些耗时统计，AnalyseTask利用这些数据，进行堆栈优化、数据整理，打印出前面的启动耗时log。
 
 
 
-##### Application初始化耗时：
 
-前面讲到，Application初始化耗时的获取方式是``ActivityThreadHacker.getApplicationCost()``：
 
-```
-com.tencent.matrix.trace.hacker.ActivityThreadHacker
-
-public static long getApplicationCost() {
-        return ActivityThreadHacker.sApplicationCreateEndTime - ActivityThreadHacker.sApplicationCreateBeginTime;
-    }
-```
-
-内部记录了Application初始的开始点sApplicationCreateBeginTime和结束点sApplicationCreateEndTime。那么这两个点在什么时机赋值的呢？
-
-通过跟踪代码，可以发现sApplicationCreateBeginTime是在``ActivityThreadHacker.hackSysHandlerCallback()``中赋值。在其内部打个断电，冷启动APP后，方法调用栈如下图：
-
-![matrix_ActivityThreadHacker_method_trace](matrix_ActivityThreadHacker_method_trace.png)
-
-从上图代码调用流程中可以看到，MatrixApplication.onCreate()调用AppMethodBeat.i()（通过插桩实现），进而执行ActivityThreadHacker.hackSysHandlerCallback()，即sApplicationCreateBeginTime对应Application.onCreate()。
-
-sApplicationCreateEndTime在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
-
-下面讲下``ActivityThreadHacker``相关逻辑。
-
-##### ActivityThreadHacker：
-
-```
-com.tencent.matrix.trace.hacker.ActivityThreadHacker
-
-public static void hackSysHandlerCallback() {
-        try {
-            sApplicationCreateBeginTime = SystemClock.uptimeMillis();
-            sApplicationCreateBeginMethodIndex = AppMethodBeat.getInstance().maskIndex("ApplicationCreateBeginMethodIndex");
-            Class<?> forName = Class.forName("android.app.ActivityThread");
-            Field field = forName.getDeclaredField("sCurrentActivityThread");
-            field.setAccessible(true);
-            // step1. 通过反射获取ActivityThread.sCurrentActivityThread对象
-            Object activityThreadValue = field.get(forName);
-            
-            Field mH = forName.getDeclaredField("mH");
-            mH.setAccessible(true);
-            // step2. 通过反射获取sCurrentActivityThread的mH对象
-            Object handler = mH.get(activityThreadValue);
-            
-            Class<?> handlerClass = handler.getClass().getSuperclass();
-            Field callbackField = handlerClass.getDeclaredField("mCallback");
-            callbackField.setAccessible(true);
-            Handler.Callback originalCallback = (Handler.Callback) callbackField.get(handler);
-            HackCallback callback = new HackCallback(originalCallback);
-            // step3. 将mH中的mCallback设置成HackCallback
-            callbackField.set(handler, callback);
-        } catch (Exception e) {
-            MatrixLog.e(TAG, "hook system handler err! %s", e.getCause().toString());
-        }
-    }
-```
-
-上面这部分代码，通过注释可以了解到，本质上是通过反射，将ActivityThreadHacker.HackCallback设置成主线程Handler的mCallback。这样，就可以拦截主线程消息做一些工作。对ActivityThread还不太了解的同学可以看看这篇文章：[理解Application创建过程](http://gityuan.com/2017/04/02/android-application/)。
-
-拦截了主线程消息做的事情看看下面代码：
-
-```
-com.tencent.matrix.trace.hacker.ActivityThreadHacker
-
-private final static class HackCallback implements Handler.Callback {
-        private static final int LAUNCH_ACTIVITY = 100;
-        private static final int CREATE_SERVICE = 114;
-        private static final int RECEIVER = 113;
-        public static final int EXECUTE_TRANSACTION = 159; // for Android 9.0
-        private static boolean isCreated = false;
-        private static int hasPrint = 10;
-
-        private final Handler.Callback mOriginalCallback;
-
-        HackCallback(Handler.Callback callback) {
-            this.mOriginalCallback = callback;
-        }
-
-        @Override
-        public boolean handleMessage(Message msg) {
-
-            if (!AppMethodBeat.isRealTrace()) {
-                return null != mOriginalCallback && mOriginalCallback.handleMessage(msg);
-            }
-
-            boolean isLaunchActivity = isLaunchActivity(msg);
-            if (hasPrint > 0) {
-                MatrixLog.i(TAG, "[handleMessage] msg.what:%s begin:%s isLaunchActivity:%s", msg.what, SystemClock.uptimeMillis(), isLaunchActivity);
-                hasPrint--;
-            }
-            if (isLaunchActivity) {
-                ActivityThreadHacker.sLastLaunchActivityTime = SystemClock.uptimeMillis();
-                ActivityThreadHacker.sLastLaunchActivityMethodIndex = AppMethodBeat.getInstance().maskIndex("LastLaunchActivityMethodIndex");
-            }
-
-            if (!isCreated) {
-                if (isLaunchActivity || msg.what == CREATE_SERVICE || msg.what == RECEIVER) { // todo for provider
-                    ActivityThreadHacker.sApplicationCreateEndTime = SystemClock.uptimeMillis();
-                    ActivityThreadHacker.sApplicationCreateScene = msg.what;
-                    isCreated = true;
-                }
-            }
-
-            return null != mOriginalCallback && mOriginalCallback.handleMessage(msg);
-        }
-}
-```
-
-
-
-
-
-##### Launch Activity初始化耗时检测：
-
-ActivityThreadHacker中有个方法是获取launch activity的启动时间点：
-
-```
-public static long getLastLaunchActivityTime() {
-        return ActivityThreadHacker.sLastLaunchActivityTime;
-    }
-```
-
-那么，这个时间点是怎么获取的呢？如何判断一个Activity是launch Activity？看下面代码：
-
-```
-com.tencent.matrix.trace.hacker.ActivityThreadHacker
-
-private boolean isLaunchActivity(Message msg) {
-    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.O_MR1) {
-        if (msg.what == EXECUTE_TRANSACTION && msg.obj != null) {
-            try {
-                if (null == method) {
-                    Class clazz = Class.forName("android.app.servertransaction.ClientTransaction");
-                    method = clazz.getDeclaredMethod("getCallbacks");
-                    method.setAccessible(true);
-                }
-                List list = (List) method.invoke(msg.obj);
-                if (!list.isEmpty()) {
-                    return list.get(0).getClass().getName().endsWith(".LaunchActivityItem");
-                }
-            } catch (Exception e) {
-                MatrixLog.e(TAG, "[isLaunchActivity] %s", e);
-            }
-        }
-        return msg.what == LAUNCH_ACTIVITY;
-    } else {
-        return msg.what == LAUNCH_ACTIVITY;
-    }
-}
-```
-
-
-
-
-
-
-
-##### 总结：
-
-* Application初始化开始、结束节点：
-* Launch Activity初始化开始、结束节点：
-
-
-
-插桩结果：
-
-<img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_TestTraceMainActivity_dex.png" />
-
-
-
-插桩代码：
-
-matrix-gradle-plugin : MethodTracer.insertWindowFocusChangeMethod()
-
-```
- private void insertWindowFocusChangeMethod(ClassVisitor cv, String classname) {
-        MethodVisitor methodVisitor = cv.visitMethod(Opcodes.ACC_PUBLIC, TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD,
-                TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD_ARGS, null, null);
-        methodVisitor.visitCode();
-        methodVisitor.visitVarInsn(Opcodes.ALOAD, 0);
-        methodVisitor.visitVarInsn(Opcodes.ILOAD, 1);
-        methodVisitor.visitMethodInsn(Opcodes.INVOKESPECIAL, TraceBuildConstants.MATRIX_TRACE_ACTIVITY_CLASS, TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD,
-                TraceBuildConstants.MATRIX_TRACE_ON_WINDOW_FOCUS_METHOD_ARGS, false);
-        traceWindowFocusChangeMethod(methodVisitor, classname);
-        methodVisitor.visitInsn(Opcodes.RETURN);
-        methodVisitor.visitMaxs(2, 2);
-        methodVisitor.visitEnd();
-
-    }
-```
-
-
-
-### Trace插桩
-
-在讲应用启动耗时，提到了几个插桩点，主要实现在MethodTracer，看下这部分代码。对ASM和gradle Transform不了解的同学可以先看看我写的这两篇文章了解下基本用法：[自定义Gradle插件介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/自定义Gradle插件介绍.md)、[ASM用法介绍](https://github.com/hningoba/KnowledgeSummary/blob/master/Android随便看看/ASM用法介绍.md)。
-
-前面讲启动耗时检测统计Application耗时时提到，demo中MatrixApplication执行AppMethodBeat.i()，进而执行``ActivityThreadHacker.hackSysHandlerCallback()``，在这里记录sApplicationCreateBeginTime。
-
-跟踪代码就会发现，MatrixApplication.onCreate()中找不到AppMethodBeat.i()的调用。这个逻辑其实是通过ASM进行插桩实现的。具体代码执行逻辑在matrix-gradle-plugin的MethodTracer：
-
-```
-com.tencent.matrix.trace.MethodTracer.TraceClassAdapter
-
-@Override
-        protected void onMethodEnter() {
-            TraceMethod traceMethod = collectedMethodMap.get(methodName);
-            if (traceMethod != null) {
-                traceMethodCount.incrementAndGet();
-                mv.visitLdcInsn(traceMethod.id);
-                // 插入静态方法AppMethodBeat.i()
-                mv.visitMethodInsn(INVOKESTATIC, TraceBuildConstants.MATRIX_TRACE_CLASS, "i", "(I)V", false);
-            }
-        }
-```
-
-其中，TraceBuildConstants.MATRIX_TRACE_CLASS为"com/tencent/matrix/trace/core/AppMethodBeat"。``mv.visitMethodInsn``这行代码表示插入静态方法``AppMethodBeat.i()``。
-
-
-
-##### MethodTracer
-
-下面简单看下MethodTracer都执行了哪些操作
-
-
-
-
-
-
-
-### 遗留问题
+### 待补充
 
 * 编译期动态修改字节码，改了哪些内容？
 * UIThreadMonitor.onStart()逻辑，如何配合Choreographer的？
