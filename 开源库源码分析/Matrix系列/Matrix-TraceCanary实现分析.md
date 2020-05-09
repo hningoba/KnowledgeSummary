@@ -469,11 +469,13 @@ Looper在每个消息消费前后``msg.target.dispatchMessage(msg)``，会通过
 
 ### ANR检测
 
-ANR检测主要代码在AnrTracer。在demo中，TestTraceMainActivity.testANR()内部执行耗时改大一点（大于5000ms），比如改到7800，就能看到AS中输出如下ANR警告log：
+ANR检测的主要实现在AnrTracer。
+
+demo中，将TestTraceMainActivity.testANR()内部执行耗时改大一点（大于5000ms），比如改到7800，就能看到AS中输出如下ANR警告log：
 
 <img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_anr_log.png" style="zoom:70%;" />
 
-看下AnrTracer如何统计ANR，收集上述log信息的。主要代码在AnrTracer：
+看下AnrTracer如何统计ANR，收集上述log信息：
 
 ##### AnrTracer：
 
@@ -503,9 +505,11 @@ com.tencent.matrix.trace.tracer.AnrTracer
     }
 ```
 
-前面讲FrameTracer时提到过，每一帧执行前后分别回调Tracer.dispatchBegin()和Tracer.dispatchEnd()。
+前面讲FrameTracer时提到过，每一帧执行前后分别回调``Tracer.dispatchBegin()``和``Tracer.dispatchEnd()``。
 
-在dispatchBegin()中发送了一个延迟消息执行AnrTask，延迟时间约为5s（Constants.DEFAULT_ANR = 5 * 1000），在dispatchEnd()移除对应的任务。所以，如果主线程一帧执行任务超过5s，AnrTask就会执行。
+上面代码在``dispatchBegin()``内部发送了一个延迟消息执行AnrTask，延迟时间约为5s（Constants.DEFAULT_ANR = 5 * 1000），在``dispatchEnd()``移除对应的任务。所以，如果主线程一帧执行任务超过5s，AnrTask就会执行。
+
+要注意的一点是，ANR log中，``may be happen ANR(5007ms)!``，这里的5007ms时间并不是一帧任务的耗时（因为我们把测试方法耗时改成了7800ms），而是AnrTracer中AnrTask的消息延迟时间。
 
 ##### AnrTask：
 
@@ -532,9 +536,9 @@ public void run() {
     // Thread state
     Thread.State status = Looper.getMainLooper().getThread().getState();
     
-    // 获取线程调用堆栈
+    // 线程调用堆栈
     StackTraceElement[] stackTrace = Looper.getMainLooper().getThread().getStackTrace();
-    // 限制堆栈长度
+    // 堆栈裁剪
     String dumpStack = Utils.getStack(stackTrace, "|*\t\t", 12);
 
     // frame
@@ -545,31 +549,7 @@ public void run() {
     long traversalCost = monitor.getQueueCost(UIThreadMonitor.CALLBACK_TRAVERSAL, token);
 
     // trace
-    LinkedList<MethodItem> stack = new LinkedList();
-    if (data.length > 0) {
-        TraceDataUtils.structuredDataToStack(data, stack, true, curTime);
-        TraceDataUtils.trimStack(stack, Constants.TARGET_EVIL_METHOD_STACK, new TraceDataUtils.IStructuredDataFilter() {
-            @Override
-            public boolean isFilter(long during, int filterCount) {
-                return during < filterCount * Constants.TIME_UPDATE_CYCLE_MS;
-            }
-
-            @Override
-            public int getFilterMaxCount() {
-                return Constants.FILTER_STACK_MAX_COUNT;
-            }
-
-            @Override
-            public void fallback(List<MethodItem> stack, int size) {
-                MatrixLog.w(TAG, "[fallback] size:%s targetSize:%s stack:%s", size, Constants.TARGET_EVIL_METHOD_STACK, stack);
-                Iterator iterator = stack.listIterator(Math.min(size, Constants.TARGET_EVIL_METHOD_STACK));
-                while (iterator.hasNext()) {
-                    iterator.next();
-                    iterator.remove();
-                }
-            }
-        });
-    }
+    ...
 
     StringBuilder reportBuilder = new StringBuilder();
     StringBuilder logcatBuilder = new StringBuilder();
@@ -596,15 +576,19 @@ public void run() {
 }
 ```
 
+主要内容都加了注释，可以参考下。
+
 ##### 总结：
 
-在异步线程执行AnrTask，计算进程、调用堆栈、内存使用、trace信息，后续将信息log出来，并启动IssuesListActivity展示ANR结果。
+* ANR的检测逻辑：在主线程一帧任务开始前发送（5s）的延迟消息，任务结束时移除该消息。如果主线程一帧任务执行时间超过了消息的延迟时间（认为这一帧导致了ANR），延迟消息将会执行，触发ANR信息收集任务
+
+* 延迟消息（AnrTask）在异步线程执行，收集进程、调用堆栈、内存使用、trace信息，后续将信息log出来，并启动IssuesListActivity展示ANR结果。
 
 
 
 ### 慢函数检测
 
-像ANR检测部分提到的，将TestTraceMainActivity.testANR()实现耗时改成7800，AS会输出如下慢函数log。从log中可以看出发生了Jankiness，方法耗时7804ms，和我们的修改基本吻合。
+将``TestTraceMainActivity.testANR()``实现耗时改成7800ms，AS会输出如下慢函数log。从log中可以看出发生了Jankiness，方法耗时7804ms，和我们的修改基本吻合。
 
 <img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_evil_mthod_log.png" style="zoom:75%;" />
 
@@ -621,7 +605,7 @@ com.tencent.matrix.trace.tracer.EvilMethodTracer
         long start = config.isDevEnv() ? System.currentTimeMillis() : 0;
         try {
             long dispatchCost = endMs - beginMs;
-            // 一帧耗时超过evilThresholdMs（默认700ms），执行慢函数逻辑计算
+            // 一帧耗时超过evilThresholdMs（默认700ms），执行慢函数计算逻辑
             if (dispatchCost >= evilThresholdMs) {
                 long[] data = AppMethodBeat.getInstance().copyData(indexRecord);
                 long[] queueCosts = new long[3];
@@ -636,7 +620,7 @@ com.tencent.matrix.trace.tracer.EvilMethodTracer
     }
 ```
 
-从上面代码可以看出，当主线程一帧内耗时超过evilThresholdMs（默认700ms，可以通过TraceConfig配置），执行慢函数的警告，打印上面提到的log。
+主要逻辑在dispatchEnd()里面。从上面代码可以看出，当主线程一帧内耗时超过evilThresholdMs（默认700ms，可以通过TraceConfig配置），执行慢函数的警告，打印上面提到的log。
 
 其中，慢函数的耗时，就是上面代码中的``endMs - beginMs``，这个逻辑在“帧率检测 - UIThreadMonitor.dispatchEnd()”中有具体讲到。
 
@@ -652,35 +636,11 @@ private class AnalyseTask implements Runnable {
 
         void analyse() {
 
-            // process
+            // process 进程信息
             int[] processStat = Utils.getProcessPriority(Process.myPid());
             String usage = Utils.calculateCpuUsage(cpuCost, cost);
             LinkedList<MethodItem> stack = new LinkedList();
-            if (data.length > 0) {
-                TraceDataUtils.structuredDataToStack(data, stack, true, endMs);
-                TraceDataUtils.trimStack(stack, Constants.TARGET_EVIL_METHOD_STACK, new TraceDataUtils.IStructuredDataFilter() {
-                    @Override
-                    public boolean isFilter(long during, int filterCount) {
-                        return during < filterCount * Constants.TIME_UPDATE_CYCLE_MS;
-                    }
-
-                    @Override
-                    public int getFilterMaxCount() {
-                        return Constants.FILTER_STACK_MAX_COUNT;
-                    }
-
-                    @Override
-                    public void fallback(List<MethodItem> stack, int size) {
-                        MatrixLog.w(TAG, "[fallback] size:%s targetSize:%s stack:%s", size, Constants.TARGET_EVIL_METHOD_STACK, stack);
-                        Iterator iterator = stack.listIterator(Math.min(size, Constants.TARGET_EVIL_METHOD_STACK));
-                        while (iterator.hasNext()) {
-                            iterator.next();
-                            iterator.remove();
-                        }
-                    }
-                });
-            }
-
+            ...
 
             StringBuilder reportBuilder = new StringBuilder();
             StringBuilder logcatBuilder = new StringBuilder();
@@ -692,11 +652,14 @@ private class AnalyseTask implements Runnable {
 
             ...
         }
-
     }
 ```
 
 其中，AnalyseTask的逻辑和AnrTask类似，只是log中的部分内容不一样，就不具体展开了。
+
+##### 总结：
+
+慢函数的检测逻辑比较简单，在主线程一帧执行结束时，判断帧耗时是否大于预先设置的慢函数阈值，超过该阈值，即认为慢函数发生。
 
 
 
@@ -706,8 +669,8 @@ private class AnalyseTask implements Runnable {
 
 [官方](https://developer.android.com/topic/performance/vitals/launch-time)定义了三种启动方式：
 
-* 冷启动：彻底杀死应用进程后启动APP的方式。系统会为应用创建进程、主线程，会执行Application、launch Activity的初始化方法。
-* 热启动：没有杀死应用进程情况下启动APP的方式，比如应用切到后台。热启动中，系统的所有工作就是将您的 Activity 带到前台。这种情况不会执行Application的初始化方法，如果应用的所有 Activity 都还驻留在内存中，则应用可以无须重复对象初始化、布局扩充和呈现。
+* 冷启动：彻底杀死应用进程后启动APP的方式。系统会为应用创建进程、主线程，执行Application、launch Activity的初始化方法。
+* 热启动：没有杀死应用进程情况下启动APP的方式，比如应用切到后台。热启动中，系统的所有工作就是将您的 Activity 带到前台。这种情况不会执行Application的初始化方法，如果应用的所有 Activity 都还驻留在内存中，则应用可以无须重复对象初始化、布局inflate和呈现。
 * 温启动：
   * 有两种常见场景：
     * 点击回退键方式退出应用
@@ -724,9 +687,9 @@ private class AnalyseTask implements Runnable {
 Matrix.StartupTracer: [report] applicationCost:42 firstScreenCost:244 allCost:2306 isWarmStartUp:false
 ```
 
-log显示冷启动(isWarmStartUp:false)，Application初始化耗时42ms，首屏耗时244ms，总耗时2306ms。通过log可以知道是StartupTracer做的上报。
+log显示是冷启动(isWarmStartUp:false)方式，Application初始化耗时(applicationCost) 42ms，首屏耗时(firstScreenCost) 244ms，总耗时(allCost) 2306ms。通过log可以知道是StartupTracer做的上报。
 
-看下StartupTracer这个类，类的注释如下：
+StartupTracer给各个耗时统计点提供了注释：
 
 <img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_StartupTracer_field_annotation.png" />
 
@@ -736,14 +699,14 @@ log显示冷启动(isWarmStartUp:false)，Application初始化耗时42ms，首�
   * 起始点对应``Application.onCreate()``，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段记录起始点时间戳，该字段在``ActivityThreadHacker.hackSysHandlerCallback()``赋值。
   * 结束点比较有意思，matrix是通过hook ActivityThread的mH.mCallback实现拦截主线程message，Application和Activity的初始化任务都是通过主线程Handler机制调度的。当接收到launch activity调度message时认为Application初始化完成，以此作为结束点。结束点由``ActivityThreadHacker.sApplicationCreateEndTime``字段记录其时间戳，该字段在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
 * 首屏耗时(firstScreenCost)：
-  * 指app启动到第一个Activity(launch activity)初始化完成的耗时，可以认为包含了applicationCost + launchActivity初始化耗时。
-  * 起始点和applicationCost的起始点一样，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段其时间戳。
-  * 结束点对应launchActivity的onWindowFocusChange()，在StartupTracer.onActivityFocused()中标记。
+  * 指app启动到第一个Activity(launch activity)初始化完成的耗时，可以认为包含了applicationCost + launch activity的初始化耗时。
+  * 起始点和applicationCost的起始点一样，由``ActivityThreadHacker.sApplicationCreateBeginTime``字段记录时间戳。
+  * 结束点对应launch activity的``onWindowFocusChange()``，在``StartupTracer.onActivityFocused()``中标记。``Activity.onWindowFocusChange()``执行时，认为Activity对用户可见。
 * 冷启动耗时(coldCost)
   * app启动到第一个对用户有意义的Activity（对应图中的careActivity）初始化完成耗时。
   * 应用一般仅在闪屏页即launch activity做logo展示、应用初始化的工作，其后的第一个Activity做为主页Activity，这个Activity就是careActivity。所以把careActivity的初始化完成做为coldCost的结束点。
 * 温启动耗时(warmCost)
-  * 因为Application不会重新初始化，所以只统计Activity的初始化耗时。
+  * 因为Application不会重新初始化，所以只统计Activity的初始化耗时，和firstActivity含义一致。
   * 起始点是launchActivity初始化的开始点。
   * 结束点是launchActivity onWindfocusChanged()执行点。
 
@@ -783,13 +746,13 @@ public static void hackSysHandlerCallback() {
 
 <img src="https://raw.githubusercontent.com/hningoba/KnowledgeSummary/master/img/matrix_ActivityThreadHacker_method_trace.png" alt="matrix_ActivityThreadHacker_method_trace" style="zoom:85%;" />
 
-从上图方法调用栈可以看到，``MatrixApplication.onCreate()``调用``AppMethodBeat.i()``（插桩实现），后续执行``ActivityThreadHacker.hackSysHandlerCallback()``，所以``sApplicationCreateBeginTime``在``Application.onCreate()``执行后即刻被赋值。符合前面解释``applicationCost``概念时提到的起始点对应``Application.onCreate()``。
+从上图方法调用栈可以看到，``MatrixApplication.onCreate()``调用``AppMethodBeat.i()``（插桩实现），后续执行``ActivityThreadHacker.hackSysHandlerCallback()``，所以``sApplicationCreateBeginTime``在``Application.onCreate()``执行后被赋值。符合前面解释``applicationCost``概念时提到的起始点对应``Application.onCreate()``。
 
 ``sApplicationCreateEndTime``在``ActivityThreadHacker.HackCallback.handleMessage()``中赋值。
 
 下面看下``ActivityThreadHacker``相关逻辑。
 
-在讲````ActivityThreadHacker.HackCallback.handleMessage()``前先了解下``ActivityThreadHacker``这个类。先看下``hackSysHandlerCallback()``，也就是``Application.onCreate()``后很快执行的方法：
+在讲``ActivityThreadHacker.HackCallback.handleMessage()``前先了解下``ActivityThreadHacker``这个类。先看下``ActivityThreadHacker.hackSysHandlerCallback()``：
 
 ```
 com.tencent.matrix.trace.hacker.ActivityThreadHacker
@@ -824,7 +787,7 @@ public static void hackSysHandlerCallback() {
     }
 ```
 
-上面这部分代码，除了记录Application的初始化开始节点，还通过反射，将``ActivityThreadHacker.HackCallback``实例设置成主线程``Handler的mCallback``。这样，就可以拦截主线程消息做一些工作。
+上面这部分代码，除了记录Application的初始化开始节点``sApplicationCreateBeginTime``，还通过反射，将``ActivityThreadHacker.HackCallback``实例设置成主线程``Handler的mCallback``。这样，就可以拦截主线程消息做一些工作。
 
 对``ActivityThread``、应用启动流程不熟悉的同学可以看看这篇文章：[Android应用启动流程分析](https://hningoba.github.io/2020/04/26/Android应用启动流程分析/)。
 
@@ -868,7 +831,7 @@ private final static class HackCallback implements Handler.Callback {
 }
 ```
 
-上面代码主要意思是，当ActivityThread.HackCallback收到launch activity的初始化message时，记录Application的初始化结束点时间戳。关于判断一个Activity是否是launch activity后面会讲到。
+上面代码主要意思是，当ActivityThread.HackCallback收到launch activity的初始化message时，记录Application的初始化结束点时间戳。
 
 **总结：**
 
@@ -879,7 +842,7 @@ private final static class HackCallback implements Handler.Callback {
 
 ##### Launch Activity初始化耗时：
 
-接下来看下启动页Activity的耗时计算逻辑。
+接下来看下launch activity即闪屏页的初始化耗时计算逻辑。
 
 ActivityThreadHacker中有个方法是获取launch activity的启动时间点：
 
@@ -889,7 +852,7 @@ public static long getLastLaunchActivityTime() {
     }
 ```
 
-从《Application初始化耗时》部分，``ActivityThreadHacker.HackCallback.handleMessage()``中可以看到，接收到launch activity的消息时，对``ActivityThreadHacker.sLastLaunchActivityTime``赋值。
+从上面《Application初始化耗时》部分，``ActivityThreadHacker.HackCallback.handleMessage()``中可以看到，接收到launch activity的消息时，对``ActivityThreadHacker.sLastLaunchActivityTime``赋值。
 
 那怎么判断一个消息是launch activity的消息呢？看下面代码：
 
@@ -922,7 +885,7 @@ private boolean isLaunchActivity(Message msg) {
 }
 ```
 
-在[Android应用启动流程分析](https://hningoba.github.io/2020/04/26/Android应用启动流程分析/)这篇文章中我们提到过，Android9.0引入了ClientTransaction辅助管理应用和页面的生命周期。Application初始化时，AMS通过ActivityThread.ApplicationThread向ActivityThread.mH发送一个what为EXECUTE_TRANSACTION，obj为ClientTransaction的消息，且该消息中的ClientTransaction带有一个LaunchActivityItem的Callback。
+在[Android应用启动流程分析](https://hningoba.github.io/2020/04/26/Android应用启动流程分析/)这篇文章中我们提到过，Android9.0引入了ClientTransaction辅助管理应用和页面的生命周期。Application初始化时，AMS通过``ActivityThread.ApplicationThread``向``ActivityThread.mH``发送一个what为``EXECUTE_TRANSACTION``，obj为``ClientTransaction``的消息，且该消息中的ClientTransaction带有一个LaunchActivityItem的Callback。
 
 所以上面``isLaunchActivity()``就是通过这个思路检测launch activity的，发现符合条件的主线程消息，且消息的第一个callback类名以LaunchActivityItem为结尾，即认为发起launch activity初始化流程。
 
@@ -932,7 +895,7 @@ private boolean isLaunchActivity(Message msg) {
 
 上面分别讲了应用冷启动各个阶段的耗时统计逻辑，在文章开头处我们提到StartupTracer负责应用启动耗时检测，接下来看看StartupTracer主要做了哪些事情。
 
-看下StartupTracer的主要方法onActivityFocused()，该方法在Activity.onWindfocusChanged()中被调用。这个调用是通过插桩实现的，关于Matrix的插桩内容也比较有意思，后面单独文章来介绍。
+看下StartupTracer的主要方法onActivityFocused()，该方法在``Activity.onWindfocusChanged()``中被调用。这个调用是通过插桩实现的，关于Matrix的插桩内容也比较有意思，后面单独文章来介绍。
 
 ``Activity.onWindfocusChanged()``被执行，就认为页面已经展现在用户面前，通常做为页面初始化过程的结束点。
 
@@ -944,11 +907,11 @@ com.tencent.matrix.trace.tracer.StartupTracer
     	// coldCost == 0时认为是冷启动状态
         if (isColdStartup()) {
             if (firstScreenCost == 0) {
-            	// 第一个Activity.onWindfocusChanged()执行时统计首屏耗时
+            	// 第一个Activity的onWindowFocusChanged()执行时统计首屏耗时
                 this.firstScreenCost = uptimeMillis() - ActivityThreadHacker.getEggBrokenTime();
             }
             
-            //闪屏页已经初始化，其之后的第一个Activity.onWindfocusChanged()执行时，开始统计冷启动耗时
+            //闪屏页已经初始化，其之后的第一个Activity.onWindowFocusChanged()执行时，开始统计冷启动耗时
             if (hasShowSplashActivity) {
                 coldCost = uptimeMillis() - ActivityThreadHacker.getEggBrokenTime();
             } else {
@@ -985,20 +948,17 @@ com.tencent.matrix.trace.tracer.StartupTracer
 
 有了上面这些耗时统计，AnalyseTask利用这些数据，进行堆栈优化、数据整理，打印出前面的启动耗时log。
 
+##### 总结：
 
-
-
-
-### 待补充
-
-* 编译期动态修改字节码，改了哪些内容？
-* UIThreadMonitor.onStart()逻辑，如何配合Choreographer的？
-* AnrTask中trace部分的逻辑，比如TraceDataUtils？
+* Application初始化耗时(applicationCost)：
+  * 统计``Application.onCreate()``到``ActivityThread.mH``接收``LaunchActivityItem``消息这段过程的时间
+* 首屏耗时(firstScreenCost)：
+  * 指app启动到闪屏页Activity(launch activity)初始化完成的耗时，可以认为包含了applicationCost + launch activity页面的初始化耗时
+* 冷启动耗时(coldCost)
+  * app启动(``Application.onCreate()``)到第一个对用户有意义的Activity（careActivity）初始化完成(``Activity.onWindowFocusChanged()``)的耗时
 
 
 
 ## 参考
 
 [Matrix](https://github.com/Tencent/matrix)
-
-[Matrix Wiki](https://github.com/Tencent/matrix/wiki/Matrix-Android-TraceCanary)
