@@ -96,15 +96,25 @@ sample.tencent.matrix.MatrixApplication
 
 ### Trace Canary
 
-Trace Canary主要特效如下：
+监控界面流畅性、启动耗时、页面切换耗时、慢函数及卡顿等问题。主要特性如下：
 
 - 编译期动态修改字节码, 高性能记录执行耗时与调用堆栈
 - 准确的定位到发生卡顿的函数，提供执行堆栈、执行耗时、执行次数等信息，帮助快速解决卡顿问题
 - 自动涵盖卡顿、启动耗时、页面切换、慢函数检测等多个流畅性指标
 
+具体实现分析参考：[Matrix - TraceCanary源码分析](https://hningoba.github.io/2020/04/28/Matrix-TraceCanary实现分析/)
 
 
-具体实现分析参考：[TraceCanary实现分析](https://hningoba.github.io/2020/04/28/Matrix-TraceCanary实现分析/)
+
+### Resource Canary
+
+基于 WeakReference 的特性和 [Square Haha](https://github.com/square/haha) 库开发的 Activity 泄漏和 Bitmap 重复创建检测工具。主要特性如下：
+
+- 分离了检测和分析部分，便于在不打断自动化测试的前提下持续输出分析后的检测结果
+- 对检测部分生成的 Hprof 文件进行了裁剪，移除了大部分无用数据，降低了传输 Hprof 文件的开销
+- 增加了重复 Bitmap 对象检测，方便通过减少冗余 Bitmap 数量，降低内存消耗
+
+具体实现分析参考：[]()
 
 
 
