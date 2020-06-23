@@ -3,7 +3,7 @@ title: Matrix - TraceCanary源码分析
 categories: 技术
 ---
 
-本文主要介绍Matrix的Trace部分，主要涉及帧率、ANR、慢函数、启动耗时的检测逻辑。
+本文主要介绍Matrix的Trace部分，涉及帧率、ANR、慢函数、启动耗时的检测逻辑。
 
 <!--more-->
 
